@@ -1,5 +1,7 @@
 #!/bin/bash
 
+# OpenWrt DIY 脚本第一部分 - 在更新feeds之前执行
+
 # 更新并安装 feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
