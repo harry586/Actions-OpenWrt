@@ -1,6 +1,8 @@
 #!/bin/bash
 
-# 修改 root 密码
+# OpenWrt DIY 脚本第二部分 - 在配置之后执行
+
+# 修改 root 密码（使用固定哈希）
 sed -i 's/root::0:0:99999:7:::/root:$1$harry586$V5h3l.6dPz8Rq6k4F1d9E0:0:0:99999:7:::/g' package/base-files/files/etc/shadow
 
 # 修改主机名
@@ -42,7 +44,7 @@ exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-luci-lan-only
 
-# IPK 自动安装功能（保留）
+# IPK 自动安装功能
 cat > files/etc/uci-defaults/99-custom-packages << 'EOF'
 #!/bin/sh
 
