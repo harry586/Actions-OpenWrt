@@ -1,19 +1,24 @@
 #!/bin/bash
 
-# 更换为 coolsnowwolf/lede 源码
-sed -i 's/P3TERX\/Actions-OpenWrt/coolsnowwolf\/lede/g' .config
-sed -i 's/^# CONFIG_TARGET_ar71xx is not set/CONFIG_TARGET_ar71xx=y/g' .config
-sed -i 's/^CONFIG_TARGET_x86=y/# CONFIG_TARGET_x86 is not set/g' .config
+# 修复：删除对不存在的 .config 文件的修改操作
+# 更换为 coolsnowwolf/lede 源码（已在 workflow 中设置，这里不需要重复操作）
 
-# 添加自定义软件源
-echo "src/gz custom_packages file://packages" >> feeds.conf.default
+# 修复 feeds.conf.default 语法错误 - 使用正确的格式添加自定义源
+echo "src-git custom_packages https://github.com/$(git config --get remote.origin.url | sed 's|https://github.com/||' | sed 's|\.git||')/tree/main/files/packages" >> feeds.conf.default
 
 # 更新并安装 feeds
 ./scripts/feeds update -a
 ./scripts/feeds install -a
 
-# 添加自定义包到编译系统
-if [ -d "../files/packages" ]; then
+# 修复：添加自定义包到编译系统 - 使用正确的相对路径
+if [ -d "../../files/packages" ]; then
+    echo "找到自定义包目录，正在复制..."
     mkdir -p package/custom
-    cp -r ../files/packages/* package/custom/ 2>/dev/null || true
+    find ../../files/packages -name "*.ipk" -exec cp {} package/custom/ \; 2>/dev/null || true
+fi
+
+# 修复：确保 feeds 配置正确
+if [ -f feeds.conf.default ]; then
+    # 移除可能存在的语法错误行
+    sed -i '/^src-gz.*file:\/\/packages/d' feeds.conf.default
 fi
