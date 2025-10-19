@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# OpenWrt DIY 脚本第二部分 - 改进备份下载功能
+# OpenWrt DIY 脚本第二部分 - 修复备份功能
 
 echo "开始应用自定义配置..."
 
@@ -24,22 +24,21 @@ chmod +x files/usr/bin/freemem
 # 添加到定时任务（每天凌晨3点释放内存）
 echo "0 3 * * * /usr/bin/freemem" >> files/etc/crontabs/root
 
-# 2. 创建改进的 Overlay 备份功能（强制备份到/tmp并提供下载）
-echo "创建改进的 Overlay 备份功能..."
+# 2. 创建修复的 Overlay 备份功能
+echo "创建修复的 Overlay 备份功能..."
 mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/model/cbi/admin_system
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 
-# 创建 Overlay 备份控制器
+# 创建 Overlay 备份控制器 - 只保留一个菜单项
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
 function index()
     entry({"admin", "system", "overlay-backup"}, cbi("admin_system/overlay-backup"), _("Overlay Backup"), 80)
-    entry({"admin", "system", "download-backup"}, call("download_backup"), _("Download Backup"), 81)
-    entry({"admin", "system", "delete-backup"}, call("delete_backup"), _("Delete Backup"), 82)
 end
 
+-- 下载备份文件（不显示在菜单中）
 function download_backup()
     local http = require "luci.http"
     local fs = require "nixio.fs"
@@ -48,12 +47,21 @@ function download_backup()
     if file and fs.stat(file) then
         http.header('Content-Disposition', 'attachment; filename="' .. fs.basename(file) .. '"')
         http.header('Content-Type', 'application/octet-stream')
-        http.write(fs.readfile(file))
+        
+        local f = io.open(file, "rb")
+        if f then
+            local content = f:read("*a")
+            f:close()
+            http.write(content)
+        else
+            http.status(500, "Cannot read file")
+        end
     else
         http.status(404, "File not found")
     end
 end
 
+-- 删除备份文件（不显示在菜单中）
 function delete_backup()
     local http = require "luci.http"
     local fs = require "nixio.fs"
@@ -61,10 +69,8 @@ function delete_backup()
     
     if file and fs.stat(file) then
         fs.unlink(file)
-        http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup"))
-    else
-        http.status(404, "File not found")
     end
+    http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup"))
 end
 EOF
 
@@ -86,19 +92,22 @@ backup_btn = s:option(Button, "backup", translate("Create Overlay Backup"))
 backup_btn.inputtitle = translate("Create Backup Now")
 backup_btn.inputstyle = "apply"
 function backup_btn.write(self, section)
-    local cmd = "/usr/bin/overlay-backup backup 2>&1"
+    local cmd = "/usr/bin/overlay-backup backup"
     local result = luci.sys.exec(cmd)
     
-    -- 显示备份结果和下载提示
-    if result:match("Backup created:") then
-        local filename = result:match("Backup created: ([^\n]+)")
-        if filename then
-            luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=1&file=" .. luci.http.urlencode(filename))
-        else
-            luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=0")
+    -- 解析备份结果
+    local filename = nil
+    for line in result:gmatch("[^\r\n]+") do
+        if line:match("Backup created:") then
+            filename = line:match("Backup created: ([^%s]+)")
+            break
         end
+    end
+    
+    if filename then
+        luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=1&file=" .. luci.http.urlencode(filename))
     else
-        luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=0&error=" .. luci.http.urlencode(result))
+        luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=0")
     end
 end
 
@@ -108,20 +117,29 @@ success_msg.rawhtml = true
 success_msg.cfgvalue = function(self, section)
     local success = luci.http.formvalue("backup_success")
     local file = luci.http.formvalue("file")
-    local error_msg = luci.http.formvalue("error")
     
     if success == "1" and file then
         file = luci.http.urldecode(file)
-        local download_url = luci.dispatcher.build_url("admin/system/download-backup") .. "?file=" .. luci.http.urlencode("/tmp/" .. file)
+        local download_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?download=" .. luci.http.urlencode("/tmp/" .. file)
         return '<div class="alert-message success" style="background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin: 10px 0;">' ..
                '<strong>备份成功!</strong> 备份文件: ' .. file .. '<br>' ..
                '<a href="' .. download_url .. '" class="btn" style="background: #28a745; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px; margin-top: 5px; display: inline-block;">下载备份文件</a>' ..
                '</div>'
     elseif success == "0" then
         return '<div class="alert-message error" style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; margin: 10px 0;">' ..
-               '<strong>备份失败!</strong> ' .. (error_msg or "未知错误") ..
+               '<strong>备份失败!</strong> 请检查系统日志获取详细信息。' ..
                '</div>'
     end
+    
+    -- 处理下载请求
+    local download_file = luci.http.formvalue("download")
+    if download_file then
+        download_file = luci.http.urldecode(download_file)
+        if luci.fs.stat(download_file) then
+            luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup/download-backup") .. "?file=" .. luci.http.urlencode(download_file))
+        end
+    end
+    
     return ""
 end
 
@@ -140,13 +158,14 @@ cat > files/usr/lib/lua/luci/view/admin_system/backup_list.htm << 'EOF'
     <h3><%:Available Backup Files%></h3>
     <div class="table" style="max-height: 300px; overflow-y: auto;">
         <div class="table-row table-titles">
-            <div class="table-cell" style="width: 40%;"><%:Filename%></div>
+            <div class="table-cell" style="width: 45%;"><%:Filename%></div>
             <div class="table-cell" style="width: 20%;"><%:Size%></div>
             <div class="table-cell" style="width: 20%;"><%:Date%></div>
-            <div class="table-cell" style="width: 20%;"><%:Actions%></div>
+            <div class="table-cell" style="width: 15%;"><%:Actions%></div>
         </div>
         <%
         local fs = require "nixio.fs"
+        local http = require "luci.http"
         local backup_files = {}
         
         -- 扫描/tmp目录中的备份文件
@@ -173,7 +192,7 @@ cat > files/usr/lib/lua/luci/view/admin_system/backup_list.htm << 'EOF'
         for i, backup in ipairs(backup_files) do
         %>
         <div class="table-row">
-            <div class="table-cell" style="width: 40%; word-break: break-all;"><%=backup.name%></div>
+            <div class="table-cell" style="width: 45%; word-break: break-all;"><%=backup.name%></div>
             <div class="table-cell" style="width: 20%;">
                 <%
                 local size = backup.size
@@ -189,10 +208,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/backup_list.htm << 'EOF'
             <div class="table-cell" style="width: 20%;">
                 <%=os.date("%m/%d %H:%M", backup.mtime)%>
             </div>
-            <div class="table-cell" style="width: 20%;">
+            <div class="table-cell" style="width: 15%;">
                 <%
-                local download_url = luci.dispatcher.build_url("admin/system/download-backup") .. "?file=" .. luci.http.urlencode(backup.path)
-                local delete_url = luci.dispatcher.build_url("admin/system/delete-backup") .. "?file=" .. luci.http.urlencode(backup.path)
+                local download_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?download=" .. http.urlencode(backup.path)
+                local delete_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?delete=" .. http.urlencode(backup.path)
                 %>
                 <a href="<%=download_url%>" class="btn cbi-button cbi-button-apply" style="padding: 3px 8px; margin: 2px;">下载</a>
                 <a href="<%=delete_url%>" class="btn cbi-button cbi-button-reset" style="padding: 3px 8px; margin: 2px;" onclick="return confirm('确定要删除这个备份文件吗？')">删除</a>
@@ -211,10 +230,37 @@ cat > files/usr/lib/lua/luci/view/admin_system/backup_list.htm << 'EOF'
         <strong>注意:</strong> 备份文件保存在 /tmp 目录中，重启后会丢失。请及时下载重要的备份文件到本地计算机。
     </div>
 </div>
+
+<script>
+// 处理下载和删除操作
+document.addEventListener('DOMContentLoaded', function() {
+    // 检查URL参数，处理下载和删除
+    const urlParams = new URLSearchParams(window.location.search);
+    
+    // 处理下载
+    if (urlParams.has('download')) {
+        const file = urlParams.get('download');
+        window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/download-backup")%>?file=' + encodeURIComponent(file);
+    }
+    
+    // 处理删除
+    if (urlParams.has('delete')) {
+        const file = urlParams.get('delete');
+        if (confirm('确定要删除备份文件 ' + file + ' 吗？')) {
+            window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/delete-backup")%>?file=' + encodeURIComponent(file);
+        } else {
+            // 移除删除参数，刷新页面
+            urlParams.delete('delete');
+            const newUrl = window.location.pathname + '?' + urlParams.toString();
+            window.history.replaceState({}, '', newUrl);
+        }
+    }
+});
+</script>
 <%+footer%>
 EOF
 
-# 创建改进的 Overlay 备份主脚本（强制备份到/tmp）
+# 创建 Overlay 备份主脚本
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
 
@@ -242,17 +288,11 @@ create_backup() {
     
     # 创建备份
     echo "Backing up overlay to: $backup_path"
-    tar -czf "$backup_path" -C /overlay . 2>&1
-    
-    if [ $? -eq 0 ] && [ -f "$backup_path" ]; then
+    if tar -czf "$backup_path" -C /overlay . 2>/dev/null; then
         local file_size=$(du -h "$backup_path" | cut -f1)
-        echo "Backup created: $backup_file (Size: $file_size)"
+        echo "Backup created: $backup_file"
         echo "Backup location: $backup_path"
-        echo "Please download the backup file immediately as it will be lost after reboot."
-        
-        # 显示备份文件信息
-        ls -la "$backup_path"
-        
+        echo "File size: $file_size"
         logger "Overlay backup created: $backup_path ($file_size)"
         return 0
     else
@@ -332,10 +372,20 @@ mkdir -p files/etc/config
 cat > files/etc/config/overlay-backup << 'EOF'
 config overlay-backup
     option enabled '1'
-    option backup_path '/tmp'
 EOF
 
-# 4. IPK 自动安装功能
+# 4. 添加下载和删除处理的路由
+cat >> files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
+
+-- 添加子路由处理下载和删除
+function index()
+    entry({"admin", "system", "overlay-backup"}, cbi("admin_system/overlay-backup"), _("Overlay Backup"), 80)
+    entry({"admin", "system", "overlay-backup", "download-backup"}, call("download_backup")).leaf = true
+    entry({"admin", "system", "overlay-backup", "delete-backup"}, call("delete_backup")).leaf = true
+end
+EOF
+
+# 5. IPK 自动安装功能
 cat > files/etc/uci-defaults/99-custom-packages << 'EOF'
 #!/bin/sh
 
@@ -366,7 +416,7 @@ exit 0
 EOF
 chmod +x files/etc/uci-defaults/99-custom-packages
 
-# 5. 复制自定义 IPK 包到固件中
+# 6. 复制自定义 IPK 包到固件中
 if [ -d "../../files/packages" ]; then
     echo "复制自定义 IPK 包到固件..."
     mkdir -p files/packages
