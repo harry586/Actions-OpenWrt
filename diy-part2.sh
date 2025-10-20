@@ -1,46 +1,93 @@
 #!/bin/bash
+# =============================================
+# OpenWrt DIY 脚本第二部分 - 完整功能版（带刷新按钮）
+# 功能：内存释放 + Overlay备份Web界面 + IPK自动安装 + 刷新功能
+# 设备：Netgear WNDR3800
+# =============================================
 
-# OpenWrt DIY 脚本第二部分 - 改进备份结构和添加恢复功能
+echo "开始应用 WNDR3800 完整自定义配置..."
 
-echo "开始应用自定义配置..."
-
-# 1. 添加定时释放内存脚本
-echo "添加内存释放配置..."
+# ==================== 1. 内存释放功能 ====================
+echo "配置定时内存释放..."
 mkdir -p files/etc/crontabs
 mkdir -p files/usr/bin
 
-# 创建内存释放脚本
 cat > files/usr/bin/freemem << 'EOF'
 #!/bin/sh
-# 内存释放脚本
+# 内存释放脚本 - 每天凌晨3点自动执行
 sync
 echo 1 > /proc/sys/vm/drop_caches
-echo 2 > /proc/sys/vm/drop_caches
+echo 2 > /proc/sys/vm/drop_caches  
 echo 3 > /proc/sys/vm/drop_caches
-logger "内存缓存已清理"
+logger "定时内存缓存清理完成"
 EOF
 chmod +x files/usr/bin/freemem
 
-# 添加到定时任务（每天凌晨3点释放内存）
 echo "0 3 * * * /usr/bin/freemem" >> files/etc/crontabs/root
 
-# 2. 创建改进的 Overlay 备份功能
-echo "创建改进的 Overlay 备份功能..."
+# ==================== 2. 完整的 Overlay 备份 Web 界面（带刷新按钮）====================
+echo "创建完整的 Overlay 备份 Web 界面..."
 mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/model/cbi/admin_system
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 
-# 创建 Overlay 备份控制器
+# 创建控制器
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
 function index()
-    entry({"admin", "system", "overlay-backup"}, cbi("admin_system/overlay-backup"), _("Overlay Backup"), 80)
+    entry({"admin", "system", "overlay-backup"}, call("action_overlay_backup"), _("Overlay Backup"), 80)
     entry({"admin", "system", "overlay-backup", "download-backup"}, call("download_backup")).leaf = true
     entry({"admin", "system", "overlay-backup", "delete-backup"}, call("delete_backup")).leaf = true
+    entry({"admin", "system", "overlay-backup", "refresh"}, call("refresh_backups")).leaf = true
 end
 
--- 下载备份文件
+function action_overlay_backup()
+    local http = require "luci.http"
+    local fs = require "nixio.fs"
+    local sys = require "luci.sys"
+    
+    -- 处理备份操作
+    if http.formvalue("backup") then
+        local result = sys.exec("/usr/bin/overlay-backup backup 2>&1")
+        local filename = result:match("Backup created: ([^\n]+)")
+        if filename then
+            http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?success=1&file=" .. http.urlencode(filename))
+        else
+            http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?success=0")
+        end
+        return
+    end
+    
+    -- 处理恢复操作
+    local restore_file = http.formvalue("restore_file")
+    if restore_file then
+        if restore_file:match("^[^/]+$") then
+            restore_file = "/tmp/" .. restore_file
+        end
+        if fs.stat(restore_file) then
+            local result = sys.exec("/usr/bin/overlay-backup restore '" .. restore_file .. "' 2>&1")
+            if result:match("恢复成功") then
+                http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?restore_success=1")
+            else
+                http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?restore_success=0")
+            end
+        end
+        return
+    end
+    
+    -- 处理刷新操作
+    if http.formvalue("refresh") then
+        http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?refreshed=1")
+        return
+    end
+    
+    -- 显示页面
+    luci.template.render("admin_system/overlay_backup", {
+        backup_files = get_backup_files()
+    })
+end
+
 function download_backup()
     local http = require "luci.http"
     local fs = require "nixio.fs"
@@ -49,21 +96,16 @@ function download_backup()
     if file and fs.stat(file) then
         http.header('Content-Disposition', 'attachment; filename="' .. fs.basename(file) .. '"')
         http.header('Content-Type', 'application/octet-stream')
-        
         local f = io.open(file, "rb")
         if f then
-            local content = f:read("*a")
+            http.write(f:read("*a"))
             f:close()
-            http.write(content)
-        else
-            http.status(500, "Cannot read file")
         end
     else
         http.status(404, "File not found")
     end
 end
 
--- 删除备份文件
 function delete_backup()
     local http = require "luci.http"
     local fs = require "nixio.fs"
@@ -74,170 +116,36 @@ function delete_backup()
     end
     http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup"))
 end
-EOF
 
-# 创建 Overlay 备份配置页面
-cat > files/usr/lib/lua/luci/model/cbi/admin_system/overlay-backup.lua << 'EOF'
-require("luci.sys")
-require("luci.fs")
-require("luci.http")
-
-m = Map("overlay-backup", translate("Overlay Backup"), 
-    translate("Backup and restore only the overlay partition (user configurations). Backups are saved to /tmp and should be downloaded immediately."))
-
-s = m:section(TypedSection, "overlay-backup", "")
-s.addremove = false
-s.anonymous = true
-
--- 创建两列布局的按钮
-local btn_section = s:option(DummyValue, "_buttons", "")
-btn_section.template = "admin_system/backup_buttons"
-
--- 显示备份结果消息
-local success_msg = s:option(DummyValue, "_success_msg", "")
-success_msg.rawhtml = true
-success_msg.cfgvalue = function(self, section)
-    local success = luci.http.formvalue("backup_success")
-    local file = luci.http.formvalue("file")
-    local restore_success = luci.http.formvalue("restore_success")
-    
-    if success == "1" and file then
-        file = luci.http.urldecode(file)
-        local download_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?download=" .. luci.http.urlencode("/tmp/" .. file)
-        return '<div class="alert-message success" style="background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin: 10px 0;">' ..
-               '<strong>备份成功!</strong> 备份文件: ' .. file .. '<br>' ..
-               '<a href="' .. download_url .. '" class="btn" style="background: #28a745; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px; margin-top: 5px; display: inline-block;">下载备份文件</a>' ..
-               '</div>'
-    elseif success == "0" then
-        return '<div class="alert-message error" style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; margin: 10px 0;">' ..
-               '<strong>备份失败!</strong> 请检查系统日志获取详细信息。' ..
-               '</div>'
-    elseif restore_success == "1" then
-        return '<div class="alert-message success" style="background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin: 10px 0;">' ..
-               '<strong>恢复成功!</strong> Overlay配置已从备份文件恢复，请重启路由器使更改生效。' ..
-               '</div>'
-    elseif restore_success == "0" then
-        return '<div class="alert-message error" style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; margin: 10px 0;">' ..
-               '<strong>恢复失败!</strong> 请检查系统日志获取详细信息。' ..
-               '</div>'
-    end
-    
-    -- 处理下载请求
-    local download_file = luci.http.formvalue("download")
-    if download_file then
-        download_file = luci.http.urldecode(download_file)
-        if luci.fs.stat(download_file) then
-            luci.http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup/download-backup") .. "?file=" .. luci.http.urlencode(download_file))
-        end
-    end
-    
-    return ""
+function refresh_backups()
+    local http = require "luci.http"
+    http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?refreshed=1")
 end
 
--- 显示备份文件列表
-local backup_list = s:option(DummyValue, "_backup_list", translate("Available Backups"))
-backup_list.template = "admin_system/backup_list"
-
-return m
-EOF
-
-# 创建按钮模板
-mkdir -p files/usr/lib/lua/luci/view/admin_system
-cat > files/usr/lib/lua/luci/view/admin_system/backup_buttons.htm << 'EOF'
-<%+header%>
-<div class="cbi-section">
-    <div class="cbi-section-descr" style="margin-bottom: 15px;">
-        <%=translate("Create a backup of the overlay partition or restore from an existing backup.")%>
-    </div>
+function get_backup_files()
+    local fs = require "nixio.fs"
+    local files = {}
     
-    <div class="cbi-value">
-        <label class="cbi-value-title"><%=translate("Backup Actions")%></label>
-        <div class="cbi-value-field">
-            <div style="display: flex; gap: 10px;">
-                <!-- 备份按钮 -->
-                <form method="post" action="<%=luci.dispatcher.build_url('admin/system/overlay-backup')%>" style="margin: 0;">
-                    <input type="hidden" name="cbi.submit" value="1">
-                    <input type="hidden" name="cbi.cbe.overlay-backup._buttons.backup" value="1">
-                    <button type="submit" name="cbi.apply" class="cbi-button cbi-button-apply" style="padding: 8px 16px;">
-                        ➕ <%=translate("Create Backup")%>
-                    </button>
-                </form>
-                
-                <!-- 恢复按钮 -->
-                <form method="post" action="<%=luci.dispatcher.build_url('admin/system/overlay-backup')%>" style="margin: 0;">
-                    <input type="hidden" name="cbi.submit" value="1">
-                    <input type="hidden" name="cbi.cbe.overlay-backup._buttons.restore" value="1">
-                    <button type="submit" name="cbi.apply" class="cbi-button cbi-button-reset" style="padding: 8px 16px;">
-                        🔄 <%=translate("Restore Backup")%>
-                    </button>
-                </form>
-            </div>
-        </div>
-    </div>
-</div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // 处理恢复按钮点击
-    const restoreBtn = document.querySelector('button[name="cbi.apply"][value="1"]');
-    if (restoreBtn && restoreBtn.closest('form').querySelector('input[name="cbi.cbe.overlay-backup._buttons.restore"]')) {
-        restoreBtn.addEventListener('click', function(e) {
-            const backupFiles = document.querySelectorAll('.backup-file-item');
-            if (backupFiles.length === 0) {
-                e.preventDefault();
-                alert('<%=translate("No backup files available for restoration.")%>');
-                return false;
-            }
-            
-            const selectedFile = prompt('<%=translate("Please enter the backup filename to restore:")%>\\n\\n<%=translate("Available files:")%>\\n' + 
-                Array.from(backupFiles).map(f => ' - ' + f.textContent).join('\\n'));
-            
-            if (!selectedFile) {
-                e.preventDefault();
-                return false;
-            }
-            
-            // 添加文件名到表单
-            const form = this.closest('form');
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'restore_file';
-            input.value = selectedFile;
-            form.appendChild(input);
-        });
+    -- 扫描多个可能的位置
+    local scan_locations = {
+        "/tmp",
+        "/mnt/sda1",
+        "/mnt/sdb1", 
+        "/mnt/usb",
+        "/mnt"
     }
-});
-</script>
-<%+footer%>
-EOF
-
-# 创建备份列表显示模板
-cat > files/usr/lib/lua/luci/view/admin_system/backup_list.htm << 'EOF'
-<%+header%>
-<div class="cbi-section">
-    <h3><%:Available Backup Files%></h3>
-    <div class="table" style="max-height: 300px; overflow-y: auto;">
-        <div class="table-row table-titles">
-            <div class="table-cell" style="width: 45%;"><%:Filename%></div>
-            <div class="table-cell" style="width: 20%;"><%:Size%></div>
-            <div class="table-cell" style="width: 20%;"><%:Date%></div>
-            <div class="table-cell" style="width: 15%;"><%:Actions%></div>
-        </div>
-        <%
-        local fs = require "nixio.fs"
-        local http = require "luci.http"
-        local backup_files = {}
-        
-        -- 扫描/tmp目录中的备份文件
-        if fs.stat("/tmp") then
-            for file in fs.dir("/tmp") do
-                if file:match("openwrt%-overlay%-backup%-.*%.tar%.gz") then
-                    local full_path = "/tmp/" .. file
-                    local stat = fs.stat(full_path)
+    
+    for _, location in ipairs(scan_locations) do
+        if fs.stat(location) then
+            for file in fs.dir(location) do
+                if file:match("overlay%-backup%-.*%.tar%.gz") or file:match("openwrt%-overlay%-backup%-.*%.tar%.gz") then
+                    local path = location .. "/" .. file
+                    local stat = fs.stat(path)
                     if stat then
-                        table.insert(backup_files, {
+                        table.insert(files, {
                             name = file,
-                            path = full_path,
+                            path = path,
+                            location = location,
                             size = stat.size,
                             mtime = stat.mtime
                         })
@@ -245,515 +153,510 @@ cat > files/usr/lib/lua/luci/view/admin_system/backup_list.htm << 'EOF'
                 end
             end
         end
-        
-        -- 按修改时间排序
-        table.sort(backup_files, function(a, b) return a.mtime > b.mtime end)
-        
-        for i, backup in ipairs(backup_files) do
-        %>
-        <div class="table-row">
-            <div class="table-cell backup-file-item" style="width: 45%; word-break: break-all;"><%=backup.name%></div>
-            <div class="table-cell" style="width: 20%;">
-                <%
-                local size = backup.size
-                if size < 1024 then
-                    write(string.format("%d B", size))
-                elseif size < 1024 * 1024 then
-                    write(string.format("%.1f KB", size / 1024))
-                else
-                    write(string.format("%.1f MB", size / (1024 * 1024)))
-                end
-                %>
-            </div>
-            <div class="table-cell" style="width: 20%;">
-                <%=os.date("%m/%d %H:%M", backup.mtime)%>
-            </div>
-            <div class="table-cell" style="width: 15%;">
-                <%
-                local download_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?download=" .. http.urlencode(backup.path)
-                local delete_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?delete=" .. http.urlencode(backup.path)
-                %>
-                <a href="<%=download_url%>" class="btn cbi-button cbi-button-apply" style="padding: 3px 8px; margin: 2px;">下载</a>
-                <a href="<%=delete_url%>" class="btn cbi-button cbi-button-reset" style="padding: 3px 8px; margin: 2px;" onclick="return confirm('确定要删除这个备份文件吗？')">删除</a>
-            </div>
-        </div>
-        <% end %>
-        
-        <% if #backup_files == 0 then %>
-        <div class="table-row">
-            <div class="table-cell" colspan="4" style="text-align: center; padding: 20px;"><%:No backup files found in /tmp directory%></div>
-        </div>
-        <% end %>
+    end
+    
+    -- 按时间排序
+    table.sort(files, function(a, b) return a.mtime > b.mtime end)
+    return files
+end
+EOF
+
+# 创建 Web 界面模板（带刷新按钮）
+cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
+<%+header%>
+<div class="cbi-map">
+    <h2 name="content"><%:Overlay Backup%></h2>
+    <div class="cbi-map-descr">
+        <%:备份和恢复 overlay 分区配置。支持多个存储位置，点击刷新按钮重新扫描所有位置。%>
     </div>
     
-    <div class="alert-message warning" style="background: #fff3cd; color: #856404; padding: 10px; border-radius: 4px; margin: 10px 0;">
-        <strong>注意:</strong> 备份文件保存在 /tmp 目录中，重启后会丢失。请及时下载重要的备份文件到本地计算机。
+    <!-- 操作按钮 -->
+    <div class="cbi-section">
+        <h3><%:操作%></h3>
+        <div class="cbi-value">
+            <label class="cbi-value-title"><%:备份操作%></label>
+            <div class="cbi-value-field">
+                <form method="post" style="display: inline;">
+                    <button type="submit" name="backup" value="1" class="cbi-button cbi-button-apply">
+                        ➕ <%:创建备份%>
+                    </button>
+                </form>
+                <form method="post" style="display: inline; margin-left: 10px;">
+                    <input type="hidden" name="restore" value="1">
+                    <button type="button" onclick="showRestoreDialog()" class="cbi-button cbi-button-reset">
+                        🔄 <%:恢复备份%>
+                    </button>
+                </form>
+                <form method="post" style="display: inline; margin-left: 10px;">
+                    <button type="submit" name="refresh" value="1" class="cbi-button cbi-button-action">
+                        🔃 <%:刷新列表%>
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- 操作结果 -->
+    <% 
+    local success = luci.http.formvalue("success")
+    local file = luci.http.formvalue("file")
+    local restore_success = luci.http.formvalue("restore_success")
+    local refreshed = luci.http.formvalue("refreshed")
+    %>
+    
+    <% if refreshed == "1" then %>
+    <div class="alert-message info">
+        <strong><%:刷新完成！%></strong> <%:已重新扫描所有存储位置。%>
+    </div>
+    <% end %>
+    
+    <% if success == "1" and file then %>
+    <div class="alert-message success">
+        <strong><%:备份成功！%></strong> <%:文件：%> <%=file%><br>
+        <a href="<%=luci.dispatcher.build_url('admin/system/overlay-backup/download-backup')%>?file=<%=luci.http.urlencode('/tmp/'..file)%>" 
+           class="cbi-button cbi-button-apply">
+            📥 <%:下载备份%>
+        </a>
+    </div>
+    <% elseif success == "0" then %>
+    <div class="alert-message error">
+        <strong><%:备份失败！%></strong> <%:请查看系统日志。%>
+    </div>
+    <% elseif restore_success == "1" then %>
+    <div class="alert-message success">
+        <strong><%:恢复成功！%></strong> <%:请重启路由器生效。%>
+    </div>
+    <% elseif restore_success == "0" then %>
+    <div class="alert-message error">
+        <strong><%:恢复失败！%></strong> <%:请查看系统日志。%>
+    </div>
+    <% end %>
+
+    <!-- 备份文件列表 -->
+    <div class="cbi-section">
+        <h3><%:备份文件列表%> 
+            <small style="font-weight: normal; color: #666;">
+                （扫描位置: /tmp, /mnt/sda1, /mnt/sdb1, /mnt/usb, /mnt）
+            </small>
+        </h3>
+        
+        <div class="table" style="max-height: 400px; overflow-y: auto;">
+            <div class="table-titles">
+                <div class="table-cell" style="width: 40%;"><%:文件名%></div>
+                <div class="table-cell" style="width: 15%;"><%:位置%></div>
+                <div class="table-cell" style="width: 15%;"><%:大小%></div>
+                <div class="table-cell" style="width: 20%;"><%:修改时间%></div>
+                <div class="table-cell" style="width: 10%;"><%:操作%></div>
+            </div>
+            
+            <% 
+            local has_files = false
+            for i, backup in ipairs(backup_files) do 
+                has_files = true
+            %>
+            <div class="table-row">
+                <div class="table-cell" style="width: 40%; word-break: break-all;">
+                    <%=backup.name%>
+                </div>
+                <div class="table-cell" style="width: 15%;">
+                    <span class="badge" style="background: #6c757d; color: white; padding: 2px 6px; border-radius: 3px; font-size: 12px;">
+                        <%=backup.location%>
+                    </span>
+                </div>
+                <div class="table-cell" style="width: 15%;">
+                    <% 
+                    local size = backup.size
+                    if size < 1024 then
+                        write(size .. " B")
+                    elseif size < 1024*1024 then
+                        write(string.format("%.1f KB", size/1024))
+                    else
+                        write(string.format("%.1f MB", size/(1024*1024)))
+                    end
+                    %>
+                </div>
+                <div class="table-cell" style="width: 20%;">
+                    <%=os.date("%m/%d %H:%M", backup.mtime)%>
+                </div>
+                <div class="table-cell" style="width: 10%;">
+                    <a href="<%=luci.dispatcher.build_url('admin/system/overlay-backup/download-backup')%>?file=<%=luci.http.urlencode(backup.path)%>" 
+                       class="cbi-button cbi-button-apply" style="padding: 3px 8px; margin: 1px;" 
+                       title="下载备份文件">📥</a>
+                    <a href="<%=luci.dispatcher.build_url('admin/system/overlay-backup/delete-backup')%>?file=<%=luci.http.urlencode(backup.path)%>" 
+                       class="cbi-button cbi-button-reset" style="padding: 3px 8px; margin: 1px;" 
+                       onclick="return confirm('确定删除备份文件 ' + '<%=backup.name%>' + ' 吗？')"
+                       title="删除备份文件">🗑️</a>
+                </div>
+            </div>
+            <% end %>
+            
+            <% if not has_files then %>
+            <div class="table-row">
+                <div class="table-cell" colspan="5" style="text-align: center; padding: 30px;">
+                    <div style="color: #6c757d; font-style: italic;">
+                        📭 <%:没有找到备份文件%>
+                    </div>
+                    <div style="margin-top: 10px; font-size: 14px;">
+                        <%:请点击"创建备份"按钮创建第一个备份，或检查其他存储设备%>
+                    </div>
+                </div>
+            </div>
+            <% end %>
+        </div>
+        
+        <div class="alert-message warning" style="margin-top: 15px;">
+            <strong>💡 提示：</strong> 
+            <%:系统会自动扫描多个位置查找备份文件。如果备份文件被移动到其他位置，请点击"刷新列表"按钮重新扫描。%>
+            <br>
+            <strong>📁 扫描位置：</strong> /tmp, /mnt/sda1, /mnt/sdb1, /mnt/usb, /mnt
+        </div>
     </div>
 </div>
 
 <script>
-// 处理下载和删除操作
-document.addEventListener('DOMContentLoaded', function() {
-    // 检查URL参数，处理下载和删除
-    const urlParams = new URLSearchParams(window.location.search);
+function showRestoreDialog() {
+    const backups = [
+        <% for i, backup in ipairs(backup_files) do %>
+        {
+            name: '<%=backup.name%>',
+            path: '<%=backup.path%>',
+            location: '<%=backup.location%>'
+        },
+        <% end %>
+    ];
     
-    // 处理下载
-    if (urlParams.has('download')) {
-        const file = urlParams.get('download');
-        window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/download-backup")%>?file=' + encodeURIComponent(file);
+    if (backups.length === 0) {
+        alert('没有可用的备份文件');
+        return;
     }
     
-    // 处理删除
-    if (urlParams.has('delete')) {
-        const file = urlParams.get('delete');
-        if (confirm('确定要删除备份文件 ' + file + ' 吗？')) {
-            window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/delete-backup")%>?file=' + encodeURIComponent(file);
-        } else {
-            // 移除删除参数，刷新页面
-            urlParams.delete('delete');
-            const newUrl = window.location.pathname + '?' + urlParams.toString();
-            window.history.replaceState({}, '', newUrl);
+    let backupList = '可用备份文件：\\n\\n';
+    backups.forEach(backup => {
+        backupList += `📁 ${backup.name} (位置: ${backup.location})\\n`;
+    });
+    
+    const selected = prompt('请输入要恢复的备份文件名：\\n\\n' + backupList + '\\n请输入完整文件名：');
+    
+    if (selected) {
+        // 检查文件是否存在
+        const fileExists = backups.some(backup => backup.name === selected);
+        if (!fileExists) {
+            alert('文件不存在：' + selected + '\\n\\n请检查文件名是否正确，或点击"刷新列表"重新扫描。');
+            return;
+        }
+        
+        if (confirm('⚠️  警告：这将覆盖当前的所有配置！\\n\\n确定要恢复备份文件：' + selected + ' 吗？')) {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.innerHTML = '<input type="hidden" name="restore_file" value="' + selected + '">';
+            document.body.appendChild(form);
+            form.submit();
         }
     }
-    
-    // 处理恢复操作
-    const restoreForm = document.querySelector('form input[name="cbi.cbe.overlay-backup._buttons.restore"]');
-    if (restoreForm) {
-        restoreForm.closest('form').addEventListener('submit', function(e) {
-            const backupFiles = document.querySelectorAll('.backup-file-item');
-            if (backupFiles.length === 0) {
-                e.preventDefault();
-                alert('没有可用的备份文件用于恢复。');
-                return false;
-            }
-            
-            const fileList = Array.from(backupFiles).map(f => f.textContent).join(', ');
-            const selectedFile = prompt('请输入要恢复的备份文件名：\n\n可用文件:\n' + 
-                Array.from(backupFiles).map(f => ' - ' + f.textContent).join('\n'));
-            
-            if (!selectedFile) {
-                e.preventDefault();
-                return false;
-            }
-            
-            // 验证文件是否存在
-            const fileExists = Array.from(backupFiles).some(f => f.textContent === selectedFile);
-            if (!fileExists) {
-                e.preventDefault();
-                alert('指定的备份文件不存在: ' + selectedFile);
-                return false;
-            }
-            
-            // 添加确认
-            if (!confirm('警告：这将覆盖当前的所有配置！\n确定要恢复备份文件: ' + selectedFile + ' 吗？')) {
-                e.preventDefault();
-                return false;
-            }
-            
-            // 添加文件名到表单
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'restore_file';
-            input.value = selectedFile;
-            this.appendChild(input);
-        });
+}
+
+// 自动刷新功能（可选）
+document.addEventListener('DOMContentLoaded', function() {
+    // 如果有刷新参数，显示刷新提示
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('refreshed')) {
+        // 可以添加自动滚动到列表等效果
+        console.log('页面已刷新');
     }
+    
+    // 添加快捷键支持：按F5刷新列表
+    document.addEventListener('keydown', function(e) {
+        if (e.key === 'F5') {
+            e.preventDefault();
+            document.querySelector('button[name="refresh"]').click();
+        }
+    });
 });
 </script>
+
+<style>
+.badge {
+    font-size: 11px;
+    padding: 2px 6px;
+    border-radius: 3px;
+}
+.table-cell {
+    vertical-align: middle;
+    padding: 8px 4px;
+}
+.alert-message.info {
+    background: #d1ecf1;
+    color: #0c5460;
+    border: 1px solid #bee5eb;
+}
+</style>
 <%+footer%>
 EOF
 
-# 创建改进的 Overlay 备份主脚本（包含 overlay 目录结构）
+# 创建增强的 Overlay 备份主脚本（支持多个位置）
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
+# Overlay 备份工具 - 支持备份和恢复，增强版
 
 ACTION="$1"
-PARAM="$2"
+FILE="$2"
 
-usage() {
-    echo "Usage: $0 {backup|restore [backup_file]}"
-    echo "  backup   - Create overlay backup in /tmp"
-    echo "  restore  - Restore from backup file"
-    exit 1
+# 备份文件扫描函数
+scan_backup_locations() {
+    echo "扫描备份文件位置..."
+    local locations="/tmp /mnt/sda1 /mnt/sdb1 /mnt/usb /mnt"
+    local found_files=0
+    
+    for location in $locations; do
+        if [ -d "$location" ]; then
+            echo "检查位置: $location"
+            for file in "$location"/*.tar.gz; do
+                if [ -f "$file" ] && (echo "$file" | grep -q "overlay-backup-\|openwrt-overlay-backup-"); then
+                    local size=$(du -h "$file" 2>/dev/null | cut -f1)
+                    local mtime=$(stat -c "%y" "$file" 2>/dev/null | cut -d'.' -f1)
+                    echo "  📁 $(basename "$file") (大小: ${size:-未知}, 时间: ${mtime:-未知})"
+                    found_files=$((found_files + 1))
+                fi
+            done
+        fi
+    done
+    
+    if [ $found_files -eq 0 ]; then
+        echo "未在任何位置找到备份文件"
+    else
+        echo "总共找到 $found_files 个备份文件"
+    fi
 }
 
 create_backup() {
-    echo "Creating overlay backup in /tmp..."
+    echo "正在创建 Overlay 备份..."
+    local backup_file="overlay-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
+    local backup_path="/tmp/$backup_file"
     
-    # 确保/tmp目录可写
-    if [ ! -w "/tmp" ]; then
-        echo "Error: /tmp directory is not writable!"
+    # 检查磁盘空间
+    local available_space=$(df /tmp | awk 'NR==2 {print $4}')
+    if [ "$available_space" -lt 50000 ]; then
+        echo "错误：/tmp 空间不足，至少需要 50MB 可用空间"
         return 1
     fi
     
-    local backup_file="openwrt-overlay-backup-$(date +%Y%m%d-%H%M%S).tar.gz"
-    local backup_path="/tmp/$backup_file"
-    local temp_dir="/tmp/backup_temp_$$"
+    echo "备份文件: $backup_file"
+    echo "保存位置: /tmp/"
+    echo "正在打包 overlay 分区..."
     
-    # 创建临时目录
-    mkdir -p "$temp_dir"
-    
-    # 复制 overlay 内容到临时目录的 overlay 子目录
-    echo "Copying overlay to temporary directory..."
-    mkdir -p "$temp_dir/overlay"
-    cp -a /overlay/. "$temp_dir/overlay/"
-    
-    # 创建备份（包含 overlay 目录结构）
-    echo "Creating backup archive..."
-    if tar -czf "$backup_path" -C "$temp_dir" overlay 2>/dev/null; then
-        local file_size=$(du -h "$backup_path" | cut -f1)
-        echo "Backup created: $backup_file"
-        echo "Backup location: $backup_path"
-        echo "File size: $file_size"
-        echo "Backup structure: Contains 'overlay/' directory"
+    if tar -czf "$backup_path" -C / overlay 2>/dev/null; then
+        local size=$(du -h "$backup_path" | cut -f1)
+        echo "✓ 备份成功创建！"
+        echo "📊 文件大小: $size"
+        echo "📍 文件路径: $backup_path"
+        echo ""
+        echo "💡 提示:"
+        echo "  - 备份文件保存在 /tmp 目录，重启后会丢失"
+        echo "  - 请及时通过Web界面下载备份文件到本地"
+        echo "  - 支持的命令: $0 restore <文件名>"
         
-        # 显示备份内容结构
-        echo "Backup contents:"
-        tar -tzf "$backup_path" | head -10
-        echo "..."
-        
-        logger "Overlay backup created: $backup_path ($file_size)"
-        
-        # 清理临时目录
-        rm -rf "$temp_dir"
+        logger "Overlay backup created: $backup_file ($size)"
         return 0
     else
-        echo "Error: Backup creation failed!"
-        # 清理临时文件和目录
-        rm -rf "$temp_dir"
-        if [ -f "$backup_path" ]; then
-            rm -f "$backup_path"
-        fi
+        echo "✗ 备份创建失败！"
+        echo "可能的原因:"
+        echo "  - 磁盘空间不足"
+        echo "  - overlay 分区损坏"
+        echo "  - 权限问题"
         return 1
     fi
 }
 
 restore_backup() {
     local backup_file="$1"
+    [ -z "$backup_file" ] && { 
+        echo "错误：请指定备份文件名"
+        echo "用法: $0 restore <文件名>"
+        echo ""
+        echo "可用备份文件:"
+        scan_backup_locations
+        return 1
+    }
     
-    if [ -z "$backup_file" ]; then
-        echo "Error: Please specify backup file"
+    # 自动搜索文件位置
+    local found_path=""
+    local locations="/tmp /mnt/sda1 /mnt/sdb1 /mnt/usb /mnt"
+    
+    for location in $locations; do
+        if [ -f "$location/$backup_file" ]; then
+            found_path="$location/$backup_file"
+            break
+        fi
+    done
+    
+    if [ -z "$found_path" ]; then
+        echo "错误：找不到备份文件 '$backup_file'"
+        echo "在以下位置搜索: $locations"
+        echo ""
+        echo "请检查:"
+        echo "  1. 文件名是否正确"
+        echo "  2. 备份文件是否存在于上述位置"
+        echo "  3. 或者提供完整路径"
         return 1
     fi
     
-    # 如果只提供了文件名，没有路径，假设在/tmp
-    if [ "$(dirname "$backup_file")" = "." ]; then
-        backup_file="/tmp/$backup_file"
-    fi
+    backup_file="$found_path"
+    echo "找到备份文件: $backup_file"
     
-    if [ ! -f "$backup_file" ]; then
-        echo "Error: Backup file not found: $backup_file"
+    # 验证备份文件
+    if ! tar -tzf "$backup_file" >/dev/null 2>&1; then
+        echo "错误：备份文件损坏或格式不正确"
         return 1
     fi
     
-    echo "Restoring from backup: $backup_file"
-    echo "Checking backup structure..."
+    echo ""
+    echo "⚠️  警告：此操作将覆盖当前所有配置！"
+    echo "📋 恢复操作将:"
+    echo "  - 停止网络和服务"
+    echo "  - 清空当前 overlay 分区"
+    echo "  - 从备份恢复配置"
+    echo "  - 重启相关服务"
+    echo ""
     
-    # 检查备份文件结构
-    if tar -tzf "$backup_file" | grep -q '^overlay/'; then
-        echo "Backup structure: Contains 'overlay/' directory (correct format)"
+    read -p "确定要恢复备份吗？(输入 'YES' 确认): " confirm
+    if [ "$confirm" != "YES" ]; then
+        echo "恢复操作已取消"
+        return 0
+    fi
+    
+    echo "开始恢复过程..."
+    
+    # 停止服务
+    echo "🛑 停止服务..."
+    /etc/init.d/uhttpd stop
+    /etc/init.d/firewall stop
+    /etc/init.d/dnsmasq stop
+    sleep 3
+    
+    # 恢复备份
+    echo "📦 恢复备份文件..."
+    if tar -xzf "$backup_file" -C / ; then
+        echo "✓ 备份恢复成功！"
+        
+        # 重启服务
+        echo "🔄 启动服务..."
+        /etc/init.d/dnsmasq start
+        /etc/init.d/firewall start
+        /etc/init.d/uhttpd start
+        
+        echo ""
+        echo "🎉 恢复完成！"
+        echo "💡 建议重启路由器以确保所有配置生效: reboot"
+        
+        logger "Overlay restored from: $backup_file"
     else
-        echo "Warning: Backup does not contain 'overlay/' directory root"
-        echo "This backup might be in old format, attempting to restore anyway..."
+        echo "✗ 备份恢复失败！"
+        echo "可能文件损坏或权限问题"
+        
+        # 尝试重新启动服务
+        /etc/init.d/dnsmasq start
+        /etc/init.d/firewall start
+        /etc/init.d/uhttpd start
+        return 1
     fi
-    
-    echo "WARNING: This will overwrite current configuration!"
-    read -p "Continue? [y/N] " confirm
-    case "$confirm" in
-        y|Y|yes|YES)
-            # 停止服务
-            echo "Stopping services..."
-            /etc/init.d/uhttpd stop
-            /etc/init.d/firewall stop
-            /etc/init.d/dnsmasq stop
-            sleep 2
-            
-            # 清空当前 overlay（保留必要的结构）
-            echo "Clearing current overlay..."
-            find /overlay -mindepth 1 -maxdepth 1 -exec rm -rf {} \; 2>/dev/null || true
-            
-            # 恢复备份
-            echo "Restoring overlay..."
-            if tar -xzf "$backup_file" -C / --strip-components=1 2>/dev/null; then
-                echo "Backup restored using strip-components method"
-            else
-                # 尝试直接解压到 overlay
-                echo "Trying alternative restore method..."
-                tar -xzf "$backup_file" -C /overlay 2>/dev/null
-            fi
-            
-            # 重启服务
-            echo "Starting services..."
-            /etc/init.d/dnsmasq start
-            /etc/init.d/firewall start
-            /etc/init.d/uhttpd start
-            
-            echo "Backup restored successfully!"
-            echo "Please reboot the router to ensure all changes take effect."
-            logger "Overlay backup restored from: $backup_file"
-            ;;
-        *)
-            echo "Restore cancelled."
-            ;;
-    esac
 }
 
 case "$ACTION" in
-    backup)
-        create_backup
+    backup) 
+        create_backup 
         ;;
-    restore)
-        restore_backup "$PARAM"
+    restore) 
+        restore_backup "$FILE" 
+        ;;
+    scan)
+        scan_backup_locations
         ;;
     *)
-        usage
+        echo "Overlay 备份工具 - 增强版"
+        echo "用法: $0 {backup|restore <file>|scan}"
+        echo ""
+        echo "命令说明:"
+        echo "  backup    创建 overlay 分区备份"
+        echo "  restore   从备份文件恢复 overlay 分区"
+        echo "  scan      扫描所有位置的备份文件"
+        echo ""
+        echo "示例:"
+        echo "  $0 backup                    # 创建备份"
+        echo "  $0 restore my-backup.tar.gz  # 恢复备份"
+        echo "  $0 scan                      # 扫描备份文件"
+        exit 1
         ;;
 esac
 EOF
 chmod +x files/usr/bin/overlay-backup
 
-# 3. 修改 LuCI 控制器以处理恢复操作
-cat >> files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
+# ==================== 3. IPK 自动安装功能 ====================
+echo "设置 IPK 包自动安装..."
+mkdir -p files/etc/uci-defaults
 
--- 处理备份和恢复操作
-function index()
-    entry({"admin", "system", "overlay-backup"}, call("action_overlay_backup"), _("Overlay Backup"), 80)
-    entry({"admin", "system", "overlay-backup", "download-backup"}, call("download_backup")).leaf = true
-    entry({"admin", "system", "overlay-backup", "delete-backup"}, call("delete_backup")).leaf = true
-end
-
-function action_overlay_backup()
-    local http = require "luci.http"
-    local fs = require "nixio.fs"
-    
-    -- 处理恢复操作
-    local restore_file = http.formvalue("restore_file")
-    if restore_file then
-        -- 如果只提供了文件名，没有路径，假设在/tmp
-        if restore_file:match("^[^/]+$") then
-            restore_file = "/tmp/" .. restore_file
-        end
-        
-        if fs.stat(restore_file) then
-            local cmd = "/usr/bin/overlay-backup restore '" .. restore_file .. "' 2>&1"
-            local result = os.execute(cmd)
-            
-            if result == 0 then
-                http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?restore_success=1")
-            else
-                http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?restore_success=0")
-            end
-        else
-            http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?restore_success=0")
-        end
-        return
-    end
-    
-    -- 处理备份操作
-    local backup_action = http.formvalue("cbi.cbe.overlay-backup._buttons.backup")
-    if backup_action then
-        local cmd = "/usr/bin/overlay-backup backup"
-        local result = luci.sys.exec(cmd)
-        
-        -- 解析备份结果
-        local filename = nil
-        for line in result:gmatch("[^\r\n]+") do
-            if line:match("Backup created:") then
-                filename = line:match("Backup created: ([^%s]+)")
-                break
-            end
-        end
-        
-        if filename then
-            http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=1&file=" .. luci.http.urlencode(filename))
-        else
-            http.redirect(luci.dispatcher.build_url("admin/system/overlay-backup") .. "?backup_success=0")
-        end
-        return
-    end
-    
-    -- 显示配置页面
-    luci.template.render("admin_system/overlay_backup")
-end
-EOF
-
-# 4. 创建主页面模板
-cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
-<%+header%>
-<div class="cbi-map">
-    <h2 name="content"><%:Overlay Backup%></h2>
-    <div class="cbi-map-descr">
-        <%:Backup and restore only the overlay partition (user configurations). Backups are saved to /tmp and should be downloaded immediately.%>
-    </div>
-    
-    <!-- 操作按钮 -->
-    <div class="cbi-section">
-        <div class="cbi-section-descr" style="margin-bottom: 15px;">
-            <%:Create a backup of the overlay partition or restore from an existing backup.%>
-        </div>
-        
-        <div class="cbi-value">
-            <label class="cbi-value-title"><%:Backup Actions%></label>
-            <div class="cbi-value-field">
-                <div style="display: flex; gap: 10px;">
-                    <!-- 备份按钮 -->
-                    <form method="post" action="<%=luci.dispatcher.build_url('admin/system/overlay-backup')%>" style="margin: 0;">
-                        <input type="hidden" name="cbi.cbe.overlay-backup._buttons.backup" value="1">
-                        <button type="submit" class="cbi-button cbi-button-apply" style="padding: 8px 16px;">
-                            ➕ <%:Create Backup%>
-                        </button>
-                    </form>
-                    
-                    <!-- 恢复按钮 -->
-                    <form method="post" action="<%=luci.dispatcher.build_url('admin/system/overlay-backup')%>" style="margin: 0;">
-                        <input type="hidden" name="cbi.cbe.overlay-backup._buttons.restore" value="1">
-                        <button type="submit" class="cbi-button cbi-button-reset" style="padding: 8px 16px;">
-                            🔄 <%:Restore Backup%>
-                        </button>
-                    </form>
-                </div>
-            </div>
-        </div>
-    </div>
-    
-    <!-- 显示操作结果 -->
-    <% 
-    local success = luci.http.formvalue("backup_success")
-    local file = luci.http.formvalue("file")
-    local restore_success = luci.http.formvalue("restore_success")
-    
-    if success == "1" and file then
-        file = luci.http.urldecode(file)
-        local download_url = luci.dispatcher.build_url("admin/system/overlay-backup") .. "?download=" .. luci.http.urlencode("/tmp/" .. file)
-    %>
-    <div class="alert-message success" style="background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin: 10px 0;">
-        <strong><%:备份成功!%></strong> <%:备份文件:%> <%=file%><br>
-        <a href="<%=download_url%>" class="btn" style="background: #28a745; color: white; padding: 5px 10px; text-decoration: none; border-radius: 3px; margin-top: 5px; display: inline-block;"><%:下载备份文件%></a>
-    </div>
-    <% elseif success == "0" then %>
-    <div class="alert-message error" style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; margin: 10px 0;">
-        <strong><%:备份失败!%></strong> <%:请检查系统日志获取详细信息。%>
-    </div>
-    <% elseif restore_success == "1" then %>
-    <div class="alert-message success" style="background: #d4edda; color: #155724; padding: 10px; border-radius: 4px; margin: 10px 0;">
-        <strong><%:恢复成功!%></strong> <%:Overlay配置已从备份文件恢复，请重启路由器使更改生效。%>
-    </div>
-    <% elseif restore_success == "0" then %>
-    <div class="alert-message error" style="background: #f8d7da; color: #721c24; padding: 10px; border-radius: 4px; margin: 10px 0;">
-        <strong><%:恢复失败!%></strong> <%:请检查系统日志获取详细信息。%>
-    </div>
-    <% end %>
-    
-    <!-- 备份文件列表 -->
-    <%+admin_system/backup_list%>
-</div>
-
-<script>
-document.addEventListener('DOMContentLoaded', function() {
-    // 处理恢复按钮点击
-    const restoreBtn = document.querySelector('form input[name="cbi.cbe.overlay-backup._buttons.restore"]');
-    if (restoreBtn) {
-        restoreBtn.closest('form').addEventListener('submit', function(e) {
-            const backupFiles = document.querySelectorAll('.backup-file-item');
-            if (backupFiles.length === 0) {
-                e.preventDefault();
-                alert('<%:No backup files available for restoration.%>');
-                return false;
-            }
-            
-            const fileList = Array.from(backupFiles).map(f => f.textContent).join(', ');
-            const selectedFile = prompt('<%:Please enter the backup filename to restore:%>\n\n<%:Available files:%>\n' + 
-                Array.from(backupFiles).map(f => ' - ' + f.textContent).join('\n'));
-            
-            if (!selectedFile) {
-                e.preventDefault();
-                return false;
-            }
-            
-            // 验证文件是否存在
-            const fileExists = Array.from(backupFiles).some(f => f.textContent === selectedFile);
-            if (!fileExists) {
-                e.preventDefault();
-                alert('<%:The specified backup file does not exist:%> ' + selectedFile);
-                return false;
-            }
-            
-            // 添加确认
-            if (!confirm('<%:Warning: This will overwrite all current configurations!%>\n<%:Are you sure you want to restore backup file:%> ' + selectedFile + '?')) {
-                e.preventDefault();
-                return false;
-            }
-            
-            // 添加文件名到表单
-            const input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = 'restore_file';
-            input.value = selectedFile;
-            this.appendChild(input);
-        });
-    }
-    
-    // 处理下载和删除操作
-    const urlParams = new URLSearchParams(window.location.search);
-    
-    // 处理下载
-    if (urlParams.has('download')) {
-        const file = urlParams.get('download');
-        window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/download-backup")%>?file=' + encodeURIComponent(file);
-    }
-    
-    // 处理删除
-    if (urlParams.has('delete')) {
-        const file = urlParams.get('delete');
-        if (confirm('<%:Are you sure you want to delete this backup file?%>')) {
-            window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/delete-backup")%>?file=' + encodeURIComponent(file);
-        } else {
-            urlParams.delete('delete');
-            const newUrl = window.location.pathname + '?' + urlParams.toString();
-            window.history.replaceState({}, '', newUrl);
-        }
-    }
-});
-</script>
-<%+footer%>
-EOF
-
-# 5. IPK 自动安装功能
-cat > files/etc/uci-defaults/99-custom-packages << 'EOF'
+cat > files/etc/uci-defaults/99-auto-install << 'EOF'
 #!/bin/sh
+# IPK 包自动安装脚本
 
-# 等待网络就绪
-sleep 20
+echo "=== 自定义 IPK 包自动安装 ==="
+sleep 25
 
-# 安装自定义 IPK 包
 if [ -d "/packages" ]; then
+    echo "发现自定义 IPK 包目录..."
+    PACKAGE_COUNT=$(ls /packages/*.ipk 2>/dev/null | wc -l)
+    echo "找到 $PACKAGE_COUNT 个 IPK 文件"
+    
     for ipk in /packages/*.ipk; do
         if [ -f "$ipk" ]; then
-            echo "正在安装 $ipk..."
-            opkg install "$ipk" || echo "安装 $ipk 失败"
+            echo "正在安装: $(basename "$ipk")"
+            if opkg install "$ipk" 2>/dev/null; then
+                echo "✓ 安装成功: $(basename "$ipk")"
+                logger "IPK auto-install: $(basename "$ipk") - SUCCESS"
+            else
+                echo "✗ 安装失败: $(basename "$ipk")"
+                logger "IPK auto-install: $(basename "$ipk") - FAILED"
+            fi
         fi
     done
+    
+    echo "清理安装包..."
+    rm -rf /packages
+    echo "自定义包安装完成"
+else
+    echo "未找到自定义 IPK 包目录 /packages"
 fi
 
-# 清理安装包
-rm -rf /packages
-
-# 重启服务
-/etc/init.d/uhttpd restart 2>/dev/null
-
-# 启用cron服务
+# 启用服务
+echo "启用定时任务服务..."
 /etc/init.d/cron enable
 /etc/init.d/cron start
 
+echo "=== 自动安装完成 ==="
 exit 0
 EOF
-chmod +x files/etc/uci-defaults/99-custom-packages
+chmod +x files/etc/uci-defaults/99-auto-install
 
-# 6. 复制自定义 IPK 包到固件中
+# ==================== 4. 复制自定义IPK包 ====================
 if [ -d "../../files/packages" ]; then
     echo "复制自定义 IPK 包到固件..."
     mkdir -p files/packages
-    cp -r ../../files/packages/*.ipk files/packages/ 2>/dev/null || true
+    cp ../../files/packages/*.ipk files/packages/ 2>/dev/null || true
+    echo "已复制 $(ls files/packages/*.ipk 2>/dev/null | wc -w 2>/dev/null || echo 0) 个 IPK 文件"
+else
+    echo "未找到自定义 IPK 包目录，跳过复制"
 fi
 
-echo "自定义配置完成"
+echo ""
+echo "=========================================="
+echo "✅ WNDR3800 完整功能配置完成！"
+echo "=========================================="
+echo "📋 已配置功能:"
+echo "  1. 🕒 定时内存释放（每天凌晨3点）"
+echo "  2. 💾 Overlay 备份系统（带Web界面）"
+echo "  3. 🔃 备份文件刷新功能"
+echo "  4. 📦 IPK 包自动安装"
+echo "  5. 📁 多位置备份文件扫描"
+echo ""
+echo "🌐 Web界面位置: 系统 → Overlay Backup"
+echo "⌨️  命令行工具: /usr/bin/overlay-backup"
+echo "=========================================="
