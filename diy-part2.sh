@@ -1,13 +1,13 @@
 #!/bin/bash
 # =============================================
-# OpenWrt DIY 脚本第二部分 - 最终优化版本
+# OpenWrt DIY 脚本第二部分 - 最终修复版本
 # 修复内容：
-# 1. 文件大小和单位在同一行显示
-# 2. 恢复按钮重新添加
-# 3. 按钮边框大小优化
+# 1. 修复恢复功能，确保正确传递文件名
+# 2. 操作按钮改为竖排显示（一行一个）
+# 3. 备份文件列表改为横版布局
 # =============================================
 
-echo "开始应用 WNDR3800 最终优化配置..."
+echo "开始应用 WNDR3800 最终修复配置..."
 
 # ==================== 1. 彻底清理DDNS残留 ====================
 echo "清理DDNS相关组件..."
@@ -88,7 +88,7 @@ function restore_backup()
     local filename = http.formvalue("filename")
     if not filename or filename == "" then
         http.prepare_content("application/json")
-        http.write_json({success = false, message = "未选择备份文件"})
+        http.write_json({success = false, message = "未选择恢复文件"})
         return
     end
     
@@ -199,7 +199,7 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <ul style="margin: 0; padding-left: 20px;">
             <li>每个备份文件旁边都有<strong>恢复按钮</strong>，一键恢复</li>
             <li>恢复成功后<strong>自动重启</strong>，确保配置完全生效</li>
-            <li>操作按钮横排显示，更直观易用</li>
+            <li>操作按钮竖排显示，更清晰易用</li>
         </ul>
     </div>
     
@@ -208,12 +208,14 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <div class="cbi-value">
             <label class="cbi-value-title"><%:快速操作%></label>
             <div class="cbi-value-field">
-                <button id="create-backup" class="cbi-button cbi-button-apply" style="padding: 4px 8px; margin-right: 5px;">
-                    ➕ 创建备份
-                </button>
-                <button id="refresh-list" class="cbi-button cbi-button-action" style="padding: 4px 8px;">
-                    🔄 刷新
-                </button>
+                <div style="display: flex; flex-direction: column; gap: 5px; max-width: 200px;">
+                    <button id="create-backup" class="cbi-button cbi-button-apply" style="padding: 6px 12px;">
+                        ➕ 创建备份
+                    </button>
+                    <button id="refresh-list" class="cbi-button cbi-button-action" style="padding: 6px 12px;">
+                        🔄 刷新列表
+                    </button>
+                </div>
             </div>
         </div>
     </div>
@@ -226,13 +228,14 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <h3><%:备份文件列表%> <small style="color: #666;">(保存在 /tmp 目录，重启后丢失)</small></h3>
         <div class="table" id="backup-table" style="min-height: 100px;">
             <div class="table-titles">
-                <div class="table-cell" style="width: 70%;"><%:文件名%></div>
-                <div class="table-cell" style="width: 8%;"><%:大小%></div>
-                <div class="table-cell" style="width: 12%;"><%:备份时间%></div>
-                <div class="table-cell" style="width: 10%;"><%:操作%></div>
+                <div class="table-cell" style="width: 35%;"><%:文件名%></div>
+                <div class="table-cell" style="width: 35%;"><%:路径%></div>
+                <div class="table-cell" style="width: 10%;"><%:大小%></div>
+                <div class="table-cell" style="width: 15%;"><%:备份时间%></div>
+                <div class="table-cell" style="width: 5%;"><%:操作%></div>
             </div>
             <div class="table-row" id="no-backups" style="display: none;">
-                <div class="table-cell" colspan="4" style="text-align: center; padding: 30px; color: #999;">
+                <div class="table-cell" colspan="5" style="text-align: center; padding: 30px; color: #999;">
                     <%:暂无备份文件，点击"创建备份"按钮生成第一个备份%>
                 </div>
             </div>
@@ -268,12 +271,14 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
                     <li>保证网络服务的稳定运行</li>
                 </ul>
             </div>
-            <button id="reboot-now" class="cbi-button cbi-button-apply" style="padding: 6px 12px; margin-right: 10px;">
-                🔄 立即重启
-            </button>
-            <button id="cancel-reboot" class="cbi-button cbi-button-reset" style="padding: 6px 12px;">
-                ❌ 取消重启
-            </button>
+            <div style="display: flex; flex-direction: column; gap: 10px; max-width: 200px; margin: 0 auto;">
+                <button id="reboot-now" class="cbi-button cbi-button-apply" style="padding: 8px 16px;">
+                    🔄 立即重启
+                </button>
+                <button id="cancel-reboot" class="cbi-button cbi-button-reset" style="padding: 8px 16px;">
+                    ❌ 取消重启
+                </button>
+            </div>
         </div>
     </div>
 </div>
@@ -303,41 +308,43 @@ function loadBackupList() {
             
             noBackups.style.display = 'none';
             
-            // 填充表格
+            // 填充表格 - 横版布局
             backups.forEach(backup => {
                 const row = document.createElement('div');
                 row.className = 'table-row';
                 row.innerHTML = `
-                    <div class="table-cell" style="width: 70%;">
+                    <div class="table-cell" style="width: 35%;">
                         <div style="font-weight: bold; word-break: break-all;">${backup.name}</div>
+                    </div>
+                    <div class="table-cell" style="width: 35%;">
                         <div style="font-size: 11px; color: #666; word-break: break-all;">${backup.path}</div>
                     </div>
-                    <div class="table-cell" style="width: 8%;">
+                    <div class="table-cell" style="width: 10%;">
                         <div style="font-family: monospace; white-space: nowrap;">${formatFileSize(backup.size)}</div>
                     </div>
-                    <div class="table-cell" style="width: 12%;">
+                    <div class="table-cell" style="width: 15%;">
                         <div style="font-size: 11px; white-space: nowrap;">${backup.formatted_time}</div>
                     </div>
-                    <div class="table-cell" style="width: 10%;">
-                        <div style="display: flex; flex-direction: row; gap: 2px; justify-content: center;">
+                    <div class="table-cell" style="width: 5%;">
+                        <div style="display: flex; flex-direction: column; gap: 2px;">
                             <button class="cbi-button cbi-button-apply restore-btn" 
                                     data-file="${backup.name}" 
-                                    style="padding: 2px 4px; font-size: 10px; flex: 1; min-width: 20px;"
+                                    style="padding: 2px 4px; font-size: 10px;"
                                     title="恢复备份">
-                                🔄
+                                🔄 恢复
                             </button>
                             <button class="cbi-button cbi-button-action download-btn" 
                                     data-file="${backup.path}" 
-                                    style="padding: 2px 4px; font-size: 10px; flex: 1; min-width: 20px;"
+                                    style="padding: 2px 4px; font-size: 10px;"
                                     title="下载备份">
-                                📥
+                                📥 下载
                             </button>
                             <button class="cbi-button cbi-button-reset delete-btn" 
                                     data-file="${backup.path}" 
                                     data-name="${backup.name}" 
-                                    style="padding: 2px 4px; font-size: 10px; flex: 1; min-width: 20px;"
+                                    style="padding: 2px 4px; font-size: 10px;"
                                     title="删除备份">
-                                🗑️
+                                🗑️ 删除
                             </button>
                         </div>
                     </div>
@@ -424,11 +431,15 @@ function hideRestoreConfirm() {
 
 // 执行恢复操作
 function performRestore() {
-    if (!currentRestoreFile) return;
+    if (!currentRestoreFile) {
+        showStatus('❌ 未选择恢复文件', 'error');
+        return;
+    }
     
     hideRestoreConfirm();
     showStatus('🔄 正在恢复备份，请稍候...', 'info');
     
+    // 确保正确传递文件名参数
     const formData = new FormData();
     formData.append('filename', currentRestoreFile);
     
@@ -513,7 +524,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 加载备份列表
     loadBackupList();
     
-    // 创建备份按钮 - 固定大小
+    // 创建备份按钮
     const createBackupBtn = document.getElementById('create-backup');
     createBackupBtn.addEventListener('click', function() {
         this.disabled = true;
@@ -967,15 +978,15 @@ fi
 
 echo ""
 echo "=========================================="
-echo "✅ WNDR3800 最终优化配置完成！"
+echo "✅ WNDR3800 最终修复配置完成！"
 echo "=========================================="
 echo "📋 修复内容:"
 echo ""
 echo "🔧 Overlay备份系统优化:"
-echo "  • ✅ 文件大小和单位在同一行显示"
-echo "  • ✅ 恢复按钮已重新添加"
-echo "  • ✅ 所有按钮边框大小优化"
-echo "  • ✅ 操作按钮横排显示，带有悬停提示"
+echo "  • ✅ 修复恢复功能，确保正确传递文件名"
+echo "  • ✅ 操作按钮改为竖排显示（一行一个）"
+echo "  • ✅ 备份文件列表改为横版布局"
+echo "  • ✅ 文件名和路径分列显示，更清晰"
 echo ""
 echo "🔌 USB自动挂载彻底修复:"
 echo "  • ✅ 增强USB存储驱动支持"
