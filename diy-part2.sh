@@ -2,9 +2,10 @@
 # =============================================
 # OpenWrt DIY 脚本第二部分 - 完整修复版本
 # 修复内容：
-# 1. Overlay备份界面优化 - 按钮大小调整，列表内恢复按钮
-# 2. USB自动挂载彻底修复
-# 3. 恢复成功后自动重启功能（5秒倒计时）
+# 1. Overlay备份界面优化 - 文件名显示区域加宽至70%
+# 2. 操作按钮改为图标+文字
+# 3. USB自动挂载彻底修复
+# 4. 恢复成功后自动重启功能（5秒倒计时）
 # =============================================
 
 echo "开始应用 WNDR3800 完整修复配置..."
@@ -188,7 +189,7 @@ function reboot_router()
 end
 EOF
 
-# 创建优化的Web界面模板 - 包含自动重启功能
+# 创建优化的Web界面模板 - 文件名区域加宽至70%，按钮改为图标+文字
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
@@ -199,7 +200,7 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <ul style="margin: 0; padding-left: 20px;">
             <li>每个备份文件旁边都有<strong>恢复按钮</strong>，一键恢复</li>
             <li>恢复成功后<strong>自动重启</strong>，确保配置完全生效</li>
-            <li>按钮大小优化，界面更协调</li>
+            <li>文件名显示区域加宽，方便查看完整路径</li>
         </ul>
     </div>
     
@@ -226,10 +227,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <h3><%:备份文件列表%> <small style="color: #666;">(保存在 /tmp 目录，重启后丢失)</small></h3>
         <div class="table" id="backup-table" style="min-height: 100px;">
             <div class="table-titles">
-                <div class="table-cell" style="width: 30%;"><%:文件名%></div>
-                <div class="table-cell" style="width: 12%;"><%:大小%></div>
-                <div class="table-cell" style="width: 20%;"><%:备份时间%></div>
-                <div class="table-cell" style="width: 28%;"><%:操作%></div>
+                <div class="table-cell" style="width: 70%;"><%:文件名%></div>
+                <div class="table-cell" style="width: 8%;"><%:大小%></div>
+                <div class="table-cell" style="width: 12%;"><%:备份时间%></div>
+                <div class="table-cell" style="width: 10%;"><%:操作%></div>
             </div>
             <div class="table-row" id="no-backups" style="display: none;">
                 <div class="table-cell" colspan="4" style="text-align: center; padding: 30px; color: #999;">
@@ -284,7 +285,7 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 // 全局变量
 let currentRestoreFile = '';
 let countdownTimer = null;
-let countdownTime = 5; // 5秒倒计时 - 这个时间很合适，用户有足够时间阅读提示
+let countdownTime = 5; // 5秒倒计时
 
 // 加载备份文件列表
 function loadBackupList() {
@@ -310,31 +311,31 @@ function loadBackupList() {
                 const row = document.createElement('div');
                 row.className = 'table-row';
                 row.innerHTML = `
-                    <div class="table-cell" style="width: 30%;">
-                        <div style="font-weight: bold;">${backup.name}</div>
-                        <div style="font-size: 11px; color: #666;">${backup.path}</div>
+                    <div class="table-cell" style="width: 70%;">
+                        <div style="font-weight: bold; word-break: break-all;">${backup.name}</div>
+                        <div style="font-size: 11px; color: #666; word-break: break-all;">${backup.path}</div>
                     </div>
-                    <div class="table-cell" style="width: 12%;">
+                    <div class="table-cell" style="width: 8%;">
                         <span style="font-family: monospace;">${formatFileSize(backup.size)}</span>
                     </div>
-                    <div class="table-cell" style="width: 20%;">
-                        <div>${backup.formatted_time}</div>
+                    <div class="table-cell" style="width: 12%;">
+                        <div style="font-size: 11px;">${backup.formatted_time}</div>
                     </div>
-                    <div class="table-cell" style="width: 28%;">
+                    <div class="table-cell" style="width: 10%;">
                         <button class="cbi-button cbi-button-apply restore-btn" 
                                 data-file="${backup.name}" 
-                                style="padding: 3px 8px; margin-right: 3px; min-width: 60px;">
+                                style="padding: 3px 5px; margin: 1px; font-size: 10px; width: 100%;">
                             🔄 恢复
                         </button>
                         <button class="cbi-button cbi-button-action download-btn" 
                                 data-file="${backup.path}" 
-                                style="padding: 3px 8px; margin-right: 3px; min-width: 60px;">
+                                style="padding: 3px 5px; margin: 1px; font-size: 10px; width: 100%;">
                             📥 下载
                         </button>
                         <button class="cbi-button cbi-button-reset delete-btn" 
                                 data-file="${backup.path}" 
                                 data-name="${backup.name}" 
-                                style="padding: 3px 8px; min-width: 60px;">
+                                style="padding: 3px 5px; margin: 1px; font-size: 10px; width: 100%;">
                             🗑️ 删除
                         </button>
                     </div>
@@ -573,7 +574,7 @@ document.addEventListener('DOMContentLoaded', function() {
 <%+footer%>
 EOF
 
-# 创建优化的备份主脚本 - 增强恢复逻辑
+# 创建优化的备份主脚本
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
 # 优化的Overlay备份工具 - 完整版本
@@ -983,10 +984,10 @@ echo "=========================================="
 echo "📋 修复内容:"
 echo ""
 echo "🔧 Overlay备份系统优化:"
-echo "  • ✅ 每个备份文件旁都有恢复按钮"
+echo "  • ✅ 文件名显示区域加宽至70%"
+echo "  • ✅ 操作按钮改为图标+文字"
 echo "  • ✅ 恢复成功后5秒自动重启"
 echo "  • ✅ 详细的重启重要性说明"
-echo "  • ✅ 可取消重启或立即重启"
 echo ""
 echo "🔌 USB自动挂载彻底修复:"
 echo "  • ✅ 增强USB存储驱动支持"
