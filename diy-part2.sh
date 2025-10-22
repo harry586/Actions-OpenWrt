@@ -1,12 +1,13 @@
 #!/bin/bash
 # =============================================
-# OpenWrt DIY 脚本第二部分 - 最终修复版本
+# OpenWrt DIY 脚本第二部分 - 完整修复版本
 # 修复内容：
 # 1. Overlay备份界面优化 - 按钮大小调整，列表内恢复按钮
 # 2. USB自动挂载彻底修复
+# 3. 恢复成功后自动重启功能（5秒倒计时）
 # =============================================
 
-echo "开始应用 WNDR3800 最终修复配置..."
+echo "开始应用 WNDR3800 完整修复配置..."
 
 # ==================== 1. 彻底清理DDNS残留 ====================
 echo "清理DDNS相关组件..."
@@ -61,6 +62,7 @@ function index()
     entry({"admin", "system", "overlay-backup", "download"}, call("download_backup")).leaf = true
     entry({"admin", "system", "overlay-backup", "delete"}, call("delete_backup")).leaf = true
     entry({"admin", "system", "overlay-backup", "list"}, call("list_backups")).leaf = true
+    entry({"admin", "system", "overlay-backup", "reboot"}, call("reboot_router")).leaf = true
 end
 
 function create_backup()
@@ -173,9 +175,20 @@ function list_backups()
     http.prepare_content("application/json")
     http.write_json(backups)
 end
+
+function reboot_router()
+    local http = require "luci.http"
+    local sys = require "luci.sys"
+    
+    http.prepare_content("application/json")
+    http.write_json({success = true, message = "路由器重启命令已发送"})
+    
+    -- 延迟执行重启，让响应先返回
+    os.execute("sleep 2 && reboot &")
+end
 EOF
 
-# 创建优化的Web界面模板 - 修复按钮大小和添加列表内恢复按钮
+# 创建优化的Web界面模板 - 包含自动重启功能
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
@@ -185,9 +198,8 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <h4 style="margin: 0 0 10px 0; color: #155724;">✅ 优化的Overlay备份系统</h4>
         <ul style="margin: 0; padding-left: 20px;">
             <li>每个备份文件旁边都有<strong>恢复按钮</strong>，一键恢复</li>
+            <li>恢复成功后<strong>自动重启</strong>，确保配置完全生效</li>
             <li>按钮大小优化，界面更协调</li>
-            <li>恢复成功后<strong>明确提示</strong>，无需猜测</li>
-            <li>详细的文件信息，方便选择</li>
         </ul>
     </div>
     
@@ -233,6 +245,7 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
             <h3 style="margin-top: 0; color: #d32f2f;">⚠️ 警告：恢复操作</h3>
             <p>您即将恢复备份文件：<strong id="confirm-filename"></strong></p>
             <p style="color: #d32f2f; font-weight: bold;">此操作将覆盖当前的所有配置！</p>
+            <p>恢复成功后系统将<strong>自动重启</strong>以确保配置完全生效。</p>
             <p>请输入 <strong>CONFIRM</strong> 确认恢复：</p>
             <input type="text" id="confirm-input" style="width: 100%; padding: 8px; margin: 10px 0; border: 1px solid #ccc; border-radius: 3px;">
             <div style="text-align: right; margin-top: 15px;">
@@ -241,11 +254,37 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
             </div>
         </div>
     </div>
+
+    <!-- 重启倒计时对话框 -->
+    <div id="reboot-countdown" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001;">
+        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; min-width: 450px; text-align: center;">
+            <h2 style="color: #1890ff; margin-top: 0;">✅ 恢复成功</h2>
+            <div style="font-size: 48px; color: #52c41a; margin: 20px 0; font-weight: bold;" id="countdown-number">5</div>
+            <p style="font-size: 16px; margin: 10px 0;">系统将在 <span id="countdown-display" style="color: #1890ff; font-weight: bold;">5秒</span> 后自动重启</p>
+            <div style="background: #f0f8ff; padding: 15px; border-radius: 5px; margin: 15px 0; text-align: left;">
+                <h4 style="margin: 0 0 10px 0; color: #1890ff;">📝 重启的重要性：</h4>
+                <ul style="margin: 0; padding-left: 20px; color: #666;">
+                    <li>确保所有服务使用恢复后的配置启动</li>
+                    <li>清理内存中旧配置的缓存数据</li>
+                    <li>避免运行中程序配置不一致的问题</li>
+                    <li>保证网络服务的稳定运行</li>
+                </ul>
+            </div>
+            <button id="reboot-now" class="cbi-button cbi-button-apply" style="padding: 8px 20px; font-size: 16px; margin-right: 10px;">
+                🔄 立即重启
+            </button>
+            <button id="cancel-reboot" class="cbi-button cbi-button-reset" style="padding: 8px 20px; font-size: 16px;">
+                ❌ 取消重启
+            </button>
+        </div>
+    </div>
 </div>
 
 <script>
 // 全局变量
 let currentRestoreFile = '';
+let countdownTimer = null;
+let countdownTime = 5; // 5秒倒计时 - 这个时间很合适，用户有足够时间阅读提示
 
 // 加载备份文件列表
 function loadBackupList() {
@@ -255,7 +294,7 @@ function loadBackupList() {
             const table = document.getElementById('backup-table');
             const noBackups = document.getElementById('no-backups');
             
-            // 清空表格内容（保留标题行和无备份提示）
+            // 清空表格内容
             const rows = table.querySelectorAll('.table-row:not(.table-titles):not(#no-backups)');
             rows.forEach(row => row.remove());
             
@@ -325,12 +364,6 @@ function showStatus(message, type = 'info') {
                      type === 'success' ? 'alert-message success' : 'alert-message info';
     
     statusDiv.innerHTML = `<div class="${className}">${message}</div>`;
-    
-    if (type === 'success' || type === 'error') {
-        setTimeout(() => {
-            statusDiv.innerHTML = '';
-        }, 8000);
-    }
 }
 
 // 绑定表格事件
@@ -408,13 +441,72 @@ function performRestore() {
     .then(response => response.json())
     .then(result => {
         if (result.success) {
-            showStatus('✅ ' + result.message + ' 建议重启路由器使更改生效。', 'success');
+            // 恢复成功，显示重启倒计时
+            showRebootCountdown();
         } else {
             showStatus('❌ ' + result.message, 'error');
         }
     })
     .catch(error => {
         showStatus('❌ 恢复失败: ' + error, 'error');
+    });
+}
+
+// 显示重启倒计时
+function showRebootCountdown() {
+    const rebootDialog = document.getElementById('reboot-countdown');
+    const countdownNumber = document.getElementById('countdown-number');
+    const countdownDisplay = document.getElementById('countdown-display');
+    
+    rebootDialog.style.display = 'block';
+    countdownTime = 5; // 重置为5秒
+    
+    // 更新显示
+    countdownNumber.textContent = countdownTime;
+    countdownDisplay.textContent = countdownTime + '秒';
+    
+    // 开始倒计时
+    countdownTimer = setInterval(() => {
+        countdownTime--;
+        countdownNumber.textContent = countdownTime;
+        countdownDisplay.textContent = countdownTime + '秒';
+        
+        if (countdownTime <= 0) {
+            clearInterval(countdownTimer);
+            rebootRouter();
+        }
+    }, 1000);
+}
+
+// 隐藏重启倒计时
+function hideRebootCountdown() {
+    const rebootDialog = document.getElementById('reboot-countdown');
+    rebootDialog.style.display = 'none';
+    if (countdownTimer) {
+        clearInterval(countdownTimer);
+        countdownTimer = null;
+    }
+}
+
+// 重启路由器
+function rebootRouter() {
+    hideRebootCountdown();
+    showStatus('🔄 正在重启路由器，请等待约1分钟后重新访问...', 'info');
+    
+    fetch('<%=luci.dispatcher.build_url("admin/system/overlay-backup/reboot")%>', {
+        method: 'POST'
+    })
+    .then(response => response.json())
+    .then(result => {
+        if (result.success) {
+            showStatus('✅ ' + result.message, 'success');
+        } else {
+            showStatus('❌ 重启失败，请手动重启', 'error');
+        }
+    })
+    .catch(error => {
+        // 请求可能因为重启而中断，这是正常的
+        showStatus('🔄 路由器正在重启，请等待约1分钟后重新访问...', 'info');
     });
 }
 
@@ -472,15 +564,19 @@ document.addEventListener('DOMContentLoaded', function() {
             hideRestoreConfirm();
         }
     });
+    
+    // 重启对话框事件
+    document.getElementById('reboot-now').addEventListener('click', rebootRouter);
+    document.getElementById('cancel-reboot').addEventListener('click', hideRebootCountdown);
 });
 </script>
 <%+footer%>
 EOF
 
-# 创建优化的备份主脚本
+# 创建优化的备份主脚本 - 增强恢复逻辑
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
-# 优化的Overlay备份工具 - 最终版本
+# 优化的Overlay备份工具 - 完整版本
 
 ACTION="$1"
 FILE="$2"
@@ -552,19 +648,31 @@ restore_backup() {
     echo "备份文件验证通过"
     echo "正在停止服务..."
     
-    # 停止服务
+    # 停止服务（更彻底）
     /etc/init.d/uhttpd stop 2>/dev/null || true
     /etc/init.d/firewall stop 2>/dev/null || true
     /etc/init.d/dnsmasq stop 2>/dev/null || true
+    /etc/init.d/network stop 2>/dev/null || true
     sleep 3
+    
+    # 清理可能存在的临时配置
+    echo "清理临时配置..."
+    rm -rf /tmp/luci-* 2>/dev/null || true
+    rm -rf /tmp/.uci 2>/dev/null || true
     
     # 恢复备份
     echo "正在恢复文件..."
     if tar -xzf "${backup_file}" -C / ; then
         echo "文件恢复完成"
-        echo "正在启动服务..."
+        
+        # 强制重新加载所有配置
+        echo "重新加载配置..."
+        uci commit 2>/dev/null || true
         
         # 重新启动服务
+        echo "正在启动服务..."
+        /etc/init.d/network start 2>/dev/null || true
+        sleep 2
         /etc/init.d/dnsmasq start 2>/dev/null || true
         /etc/init.d/firewall start 2>/dev/null || true
         /etc/init.d/uhttpd start 2>/dev/null || true
@@ -572,13 +680,21 @@ restore_backup() {
         echo ""
         echo "恢复成功！"
         echo "✅ 所有配置已从备份文件恢复"
-        echo "💡 建议：重启路由器以确保所有更改生效"
+        echo ""
+        echo "💡 重要提示：系统将自动重启以确保："
+        echo "   • 所有服务使用恢复后的配置重新启动"
+        echo "   • 清理内存中旧配置的缓存数据"
+        echo "   • 避免运行中程序配置不一致的问题"
+        echo "   • 保证网络服务的稳定运行"
+        echo ""
+        echo "🔄 请等待系统自动重启..."
         return 0
     else
         echo "恢复失败！"
-        echo "正在尝试恢复服务..."
+        echo "正在尝试恢复基本服务..."
         
         # 尝试重新启动服务
+        /etc/init.d/network start 2>/dev/null || true
         /etc/init.d/dnsmasq start 2>/dev/null || true
         /etc/init.d/firewall start 2>/dev/null || true
         /etc/init.d/uhttpd start 2>/dev/null || true
@@ -614,7 +730,7 @@ cat > files/etc/hotplug.d/block/10-mount << 'EOF'
 
 [ -z "$DEVNAME" ] && exit 0
 
-logger "USB存储设备事件: ACTION=$ACTION, DEVICE=$DEVNAME, TYPE=$MDEV"
+logger "USB存储设备事件: ACTION=$ACTION, DEVICE=$DEVNAME"
 
 case "$ACTION" in
     add)
@@ -862,23 +978,21 @@ fi
 
 echo ""
 echo "=========================================="
-echo "✅ WNDR3800 最终修复配置完成！"
+echo "✅ WNDR3800 完整修复配置完成！"
 echo "=========================================="
 echo "📋 修复内容:"
 echo ""
 echo "🔧 Overlay备份系统优化:"
 echo "  • ✅ 每个备份文件旁都有恢复按钮"
-echo "  • ✅ 按钮大小优化，界面协调"
-echo "  • ✅ 恢复确认对话框，防止误操作"
-echo "  • ✅ 恢复成功明确提示"
-echo "  • ✅ 详细文件信息显示"
+echo "  • ✅ 恢复成功后5秒自动重启"
+echo "  • ✅ 详细的重启重要性说明"
+echo "  • ✅ 可取消重启或立即重启"
 echo ""
 echo "🔌 USB自动挂载彻底修复:"
 echo "  • ✅ 增强USB存储驱动支持"
 echo "  • ✅ 改进的热插拔挂载脚本"
 echo "  • ✅ 手动挂载工具 /usr/bin/mount-usb"
 echo "  • ✅ 设备检测工具 /usr/bin/usb-detect"
-echo "  • ✅ 自动创建 /mnt/usb 符号链接"
 echo ""
 echo "💡 使用说明:"
 echo "  • 备份恢复: 系统 → Overlay Backup"
