@@ -2,10 +2,9 @@
 # =============================================
 # OpenWrt DIY 脚本第二部分 - 最终优化版本
 # 修复内容：
-# 1. 日期时间在一行显示
-# 2. 按钮布局优化 - 横排显示
-# 3. 恢复确认改为按钮确认，无需输入文字
-# 4. 创建备份按钮框大小固定
+# 1. 文件大小和单位在同一行显示
+# 2. 恢复按钮重新添加
+# 3. 按钮边框大小优化
 # =============================================
 
 echo "开始应用 WNDR3800 最终优化配置..."
@@ -209,10 +208,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <div class="cbi-value">
             <label class="cbi-value-title"><%:快速操作%></label>
             <div class="cbi-value-field">
-                <button id="create-backup" class="cbi-button cbi-button-apply" style="min-width: 120px; padding: 5px 10px; margin-right: 5px;">
+                <button id="create-backup" class="cbi-button cbi-button-apply" style="padding: 4px 8px; margin-right: 5px;">
                     ➕ 创建备份
                 </button>
-                <button id="refresh-list" class="cbi-button cbi-button-action" style="min-width: 80px; padding: 5px 10px;">
+                <button id="refresh-list" class="cbi-button cbi-button-action" style="padding: 4px 8px;">
                     🔄 刷新
                 </button>
             </div>
@@ -248,8 +247,8 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
             <p style="color: #d32f2f; font-weight: bold;">此操作将覆盖当前的所有配置！</p>
             <p>恢复成功后系统将<strong>自动重启</strong>以确保配置完全生效。</p>
             <div style="text-align: right; margin-top: 20px;">
-                <button id="confirm-cancel" class="cbi-button cbi-button-reset" style="padding: 8px 16px;">取消</button>
-                <button id="confirm-restore" class="cbi-button cbi-button-apply" style="padding: 8px 16px; margin-left: 10px;">确认恢复</button>
+                <button id="confirm-cancel" class="cbi-button cbi-button-reset" style="padding: 6px 12px;">取消</button>
+                <button id="confirm-restore" class="cbi-button cbi-button-apply" style="padding: 6px 12px; margin-left: 10px;">确认恢复</button>
             </div>
         </div>
     </div>
@@ -269,10 +268,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
                     <li>保证网络服务的稳定运行</li>
                 </ul>
             </div>
-            <button id="reboot-now" class="cbi-button cbi-button-apply" style="padding: 8px 20px; font-size: 16px; margin-right: 10px;">
+            <button id="reboot-now" class="cbi-button cbi-button-apply" style="padding: 6px 12px; margin-right: 10px;">
                 🔄 立即重启
             </button>
-            <button id="cancel-reboot" class="cbi-button cbi-button-reset" style="padding: 8px 20px; font-size: 16px;">
+            <button id="cancel-reboot" class="cbi-button cbi-button-reset" style="padding: 6px 12px;">
                 ❌ 取消重启
             </button>
         </div>
@@ -314,7 +313,7 @@ function loadBackupList() {
                         <div style="font-size: 11px; color: #666; word-break: break-all;">${backup.path}</div>
                     </div>
                     <div class="table-cell" style="width: 8%;">
-                        <span style="font-family: monospace;">${formatFileSize(backup.size)}</span>
+                        <div style="font-family: monospace; white-space: nowrap;">${formatFileSize(backup.size)}</div>
                     </div>
                     <div class="table-cell" style="width: 12%;">
                         <div style="font-size: 11px; white-space: nowrap;">${backup.formatted_time}</div>
@@ -323,18 +322,21 @@ function loadBackupList() {
                         <div style="display: flex; flex-direction: row; gap: 2px; justify-content: center;">
                             <button class="cbi-button cbi-button-apply restore-btn" 
                                     data-file="${backup.name}" 
-                                    style="padding: 2px 4px; font-size: 10px; flex: 1;">
+                                    style="padding: 2px 4px; font-size: 10px; flex: 1; min-width: 20px;"
+                                    title="恢复备份">
                                 🔄
                             </button>
                             <button class="cbi-button cbi-button-action download-btn" 
                                     data-file="${backup.path}" 
-                                    style="padding: 2px 4px; font-size: 10px; flex: 1;">
+                                    style="padding: 2px 4px; font-size: 10px; flex: 1; min-width: 20px;"
+                                    title="下载备份">
                                 📥
                             </button>
                             <button class="cbi-button cbi-button-reset delete-btn" 
                                     data-file="${backup.path}" 
                                     data-name="${backup.name}" 
-                                    style="padding: 2px 4px; font-size: 10px; flex: 1;">
+                                    style="padding: 2px 4px; font-size: 10px; flex: 1; min-width: 20px;"
+                                    title="删除备份">
                                 🗑️
                             </button>
                         </div>
@@ -351,7 +353,7 @@ function loadBackupList() {
         });
 }
 
-// 格式化文件大小
+// 格式化文件大小 - 确保数值和单位在同一行
 function formatFileSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
@@ -967,13 +969,13 @@ echo ""
 echo "=========================================="
 echo "✅ WNDR3800 最终优化配置完成！"
 echo "=========================================="
-echo "📋 优化内容:"
+echo "📋 修复内容:"
 echo ""
 echo "🔧 Overlay备份系统优化:"
-echo "  • ✅ 日期时间在一行显示"
-echo "  • ✅ 操作按钮横排显示（图标按钮）"
-echo "  • ✅ 恢复确认改为按钮确认，无需输入文字"
-echo "  • ✅ 创建备份按钮框大小固定"
+echo "  • ✅ 文件大小和单位在同一行显示"
+echo "  • ✅ 恢复按钮已重新添加"
+echo "  • ✅ 所有按钮边框大小优化"
+echo "  • ✅ 操作按钮横排显示，带有悬停提示"
 echo ""
 echo "🔌 USB自动挂载彻底修复:"
 echo "  • ✅ 增强USB存储驱动支持"
