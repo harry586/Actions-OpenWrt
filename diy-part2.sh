@@ -2,9 +2,10 @@
 # =============================================
 # OpenWrt DIY 脚本第二部分 - 最终修复版本
 # 修复内容：
-# 1. 彻底修复恢复功能，解决"未选择恢复文件"问题
-# 2. 优化按钮样式，简化布局，修复按钮在框外的问题
-# 3. 改进JavaScript文件传递逻辑
+# 1. 移除调试信息，修复JSON解析错误
+# 2. 取消所有小图标，只保留文字
+# 3. 增加文件名显示长度
+# 4. 备份日期单独一行显示
 # =============================================
 
 echo "开始应用 WNDR3800 最终修复配置..."
@@ -51,7 +52,7 @@ mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 mkdir -p files/usr/bin
 
-# 创建优化的控制器 - 修复文件传递问题
+# 创建优化的控制器 - 移除调试信息
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
@@ -87,9 +88,6 @@ function restore_backup()
     
     -- 关键修复：正确获取文件名参数
     local filename = http.formvalue("filename")
-    
-    -- 调试信息
-    luci.http.write("DEBUG: Received filename: " .. tostring(filename) .. "<br>")
     
     if not filename or filename == "" then
         http.prepare_content("application/json")
@@ -194,18 +192,18 @@ function reboot_router()
 end
 EOF
 
-# 创建彻底优化的Web界面模板 - 修复所有问题
+# 创建彻底优化的Web界面模板 - 移除图标，优化布局
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
     <h2 name="content"><%:Overlay Backup%></h2>
     
     <div class="alert-message success" style="background: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 15px; margin-bottom: 20px;">
-        <h4 style="margin: 0 0 10px 0; color: #155724;">✅ 彻底修复的Overlay备份系统</h4>
+        <h4 style="margin: 0 0 10px 0; color: #155724;">Overlay备份系统</h4>
         <ul style="margin: 0; padding-left: 20px;">
-            <li><strong>修复问题1</strong>: 恢复功能现在可以正常使用</li>
-            <li><strong>修复问题2</strong>: 按钮样式简化，布局更紧凑</li>
-            <li>每个备份文件都有独立的恢复、下载、删除按钮</li>
+            <li>修复完成：恢复功能现在可以正常使用</li>
+            <li>简化界面：移除所有图标，只保留文字</li>
+            <li>优化布局：文件名显示更长，备份日期单独显示</li>
         </ul>
     </div>
     
@@ -216,10 +214,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
             <div class="cbi-value-field">
                 <div style="display: flex; gap: 10px; flex-wrap: wrap;">
                     <button id="create-backup" class="cbi-button cbi-button-apply" style="padding: 8px 16px; min-width: 120px;">
-                        ➕ 创建备份
+                        创建备份
                     </button>
                     <button id="refresh-list" class="cbi-button cbi-button-action" style="padding: 8px 16px; min-width: 120px;">
-                        🔄 刷新列表
+                        刷新列表
                     </button>
                 </div>
             </div>
@@ -234,10 +232,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         <h3><%:备份文件列表%> <small style="color: #666;">(保存在 /tmp 目录，重启后丢失)</small></h3>
         <div class="table" id="backup-table" style="min-height: 100px;">
             <div class="table-titles">
-                <div class="table-cell" style="width: 30%;"><%:文件名%></div>
-                <div class="table-cell" style="width: 20%;"><%:大小%></div>
+                <div class="table-cell" style="width: 50%;"><%:文件名%></div>
+                <div class="table-cell" style="width: 15%;"><%:大小%></div>
                 <div class="table-cell" style="width: 20%;"><%:备份时间%></div>
-                <div class="table-cell" style="width: 30%;"><%:操作%></div>
+                <div class="table-cell" style="width: 15%;"><%:操作%></div>
             </div>
             <div class="table-row" id="no-backups" style="display: none;">
                 <div class="table-cell" colspan="4" style="text-align: center; padding: 30px; color: #999;">
@@ -250,10 +248,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
     <!-- 恢复确认对话框 -->
     <div id="restore-confirm" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
         <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 5px; min-width: 400px;">
-            <h3 style="margin-top: 0; color: #d32f2f;">⚠️ 警告：恢复操作</h3>
+            <h3 style="margin-top: 0; color: #d32f2f;">警告：恢复操作</h3>
             <p>您即将恢复备份文件：<strong id="confirm-filename"></strong></p>
             <p style="color: #d32f2f; font-weight: bold;">此操作将覆盖当前的所有配置！</p>
-            <p>恢复成功后系统将<strong>自动重启</strong>以确保配置完全生效。</p>
+            <p>恢复成功后系统将自动重启以确保配置完全生效。</p>
             <div style="text-align: right; margin-top: 20px;">
                 <button id="confirm-cancel" class="cbi-button cbi-button-reset" style="padding: 8px 16px;">取消</button>
                 <button id="confirm-restore" class="cbi-button cbi-button-apply" style="padding: 8px 16px; margin-left: 10px;">确认恢复</button>
@@ -264,11 +262,11 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
     <!-- 重启倒计时对话框 -->
     <div id="reboot-countdown" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001;">
         <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 8px; min-width: 450px; text-align: center;">
-            <h2 style="color: #1890ff; margin-top: 0;">✅ 恢复成功</h2>
+            <h2 style="color: #1890ff; margin-top: 0;">恢复成功</h2>
             <div style="font-size: 48px; color: #52c41a; margin: 20px 0; font-weight: bold;" id="countdown-number">5</div>
             <p style="font-size: 16px; margin: 10px 0;">系统将在 <span id="countdown-display" style="color: #1890ff; font-weight: bold;">5秒</span> 后自动重启</p>
             <div style="background: #f0f8ff; padding: 15px; border-radius: 5px; margin: 15px 0; text-align: left;">
-                <h4 style="margin: 0 0 10px 0; color: #1890ff;">📝 重启的重要性：</h4>
+                <h4 style="margin: 0 0 10px 0; color: #1890ff;">重启的重要性：</h4>
                 <ul style="margin: 0; padding-left: 20px; color: #666;">
                     <li>确保所有服务使用恢复后的配置启动</li>
                     <li>清理内存中旧配置的缓存数据</li>
@@ -278,10 +276,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
             </div>
             <div style="display: flex; gap: 10px; justify-content: center;">
                 <button id="reboot-now" class="cbi-button cbi-button-apply" style="padding: 8px 16px;">
-                    🔄 立即重启
+                    立即重启
                 </button>
                 <button id="cancel-reboot" class="cbi-button cbi-button-reset" style="padding: 8px 16px;">
-                    ❌ 取消重启
+                    取消重启
                 </button>
             </div>
         </div>
@@ -313,40 +311,45 @@ function loadBackupList() {
             
             noBackups.style.display = 'none';
             
-            // 填充表格 - 简化布局
+            // 填充表格 - 优化布局
             backups.forEach(backup => {
                 const row = document.createElement('div');
                 row.className = 'table-row';
                 row.innerHTML = `
-                    <div class="table-cell" style="width: 30%;">
-                        <div style="font-weight: bold; word-break: break-all; font-size: 12px;">${backup.name}</div>
+                    <div class="table-cell" style="width: 50%;">
+                        <div style="font-weight: bold; word-break: break-all; font-size: 13px; line-height: 1.4;">
+                            ${backup.name}
+                        </div>
+                        <div style="font-size: 11px; color: #666; margin-top: 2px;">
+                            备份时间: ${backup.formatted_time}
+                        </div>
                     </div>
-                    <div class="table-cell" style="width: 20%;">
+                    <div class="table-cell" style="width: 15%;">
                         <div style="font-family: monospace; white-space: nowrap; font-size: 12px;">${formatFileSize(backup.size)}</div>
                     </div>
                     <div class="table-cell" style="width: 20%;">
                         <div style="font-size: 11px; white-space: nowrap;">${backup.formatted_time}</div>
                     </div>
-                    <div class="table-cell" style="width: 30%;">
-                        <div style="display: flex; gap: 5px; flex-wrap: wrap;">
+                    <div class="table-cell" style="width: 15%;">
+                        <div style="display: flex; gap: 4px; flex-wrap: wrap;">
                             <button class="cbi-button cbi-button-apply restore-btn" 
                                     data-file="${backup.name}" 
-                                    style="padding: 4px 8px; font-size: 11px; min-width: 60px;"
+                                    style="padding: 4px 8px; font-size: 11px; min-width: 50px;"
                                     title="恢复此备份">
-                                🔄 恢复
+                                恢复
                             </button>
                             <button class="cbi-button cbi-button-action download-btn" 
                                     data-file="${backup.path}" 
-                                    style="padding: 4px 8px; font-size: 11px; min-width: 60px;"
+                                    style="padding: 4px 8px; font-size: 11px; min-width: 50px;"
                                     title="下载备份文件">
-                                📥 下载
+                                下载
                             </button>
                             <button class="cbi-button cbi-button-reset delete-btn" 
                                     data-file="${backup.path}" 
                                     data-name="${backup.name}" 
-                                    style="padding: 4px 8px; font-size: 11px; min-width: 60px;"
+                                    style="padding: 4px 8px; font-size: 11px; min-width: 50px;"
                                     title="删除此备份">
-                                🗑️ 删除
+                                删除
                             </button>
                         </div>
                     </div>
@@ -407,10 +410,10 @@ function bindTableEvents() {
                     .then(response => response.json())
                     .then(result => {
                         if (result.success) {
-                            showStatus('✅ ' + result.message, 'success');
+                            showStatus(result.message, 'success');
                             loadBackupList();
                         } else {
-                            showStatus('❌ ' + result.message, 'error');
+                            showStatus(result.message, 'error');
                         }
                     });
             }
@@ -434,14 +437,14 @@ function hideRestoreConfirm() {
 // 执行恢复操作 - 关键修复：确保正确传递文件名
 function performRestore() {
     if (!currentRestoreFile) {
-        showStatus('❌ 未选择恢复文件', 'error');
+        showStatus('未选择恢复文件', 'error');
         return;
     }
     
     hideRestoreConfirm();
-    showStatus('🔄 正在恢复备份，请稍候...', 'info');
+    showStatus('正在恢复备份，请稍候...', 'info');
     
-    // 关键修复：使用URL编码参数而不是FormData
+    // 关键修复：使用URL编码参数
     const params = new URLSearchParams();
     params.append('filename', currentRestoreFile);
     
@@ -458,11 +461,11 @@ function performRestore() {
             // 恢复成功，显示重启倒计时
             showRebootCountdown();
         } else {
-            showStatus('❌ ' + result.message, 'error');
+            showStatus(result.message, 'error');
         }
     })
     .catch(error => {
-        showStatus('❌ 恢复失败: ' + error, 'error');
+        showStatus('恢复失败: ' + error, 'error');
     });
 }
 
@@ -505,7 +508,7 @@ function hideRebootCountdown() {
 // 重启路由器
 function rebootRouter() {
     hideRebootCountdown();
-    showStatus('🔄 正在重启路由器，请等待约1分钟后重新访问...', 'info');
+    showStatus('正在重启路由器，请等待约1分钟后重新访问...', 'info');
     
     fetch('<%=luci.dispatcher.build_url("admin/system/overlay-backup/reboot")%>', {
         method: 'POST'
@@ -513,14 +516,14 @@ function rebootRouter() {
     .then(response => response.json())
     .then(result => {
         if (result.success) {
-            showStatus('✅ ' + result.message, 'success');
+            showStatus(result.message, 'success');
         } else {
-            showStatus('❌ 重启失败，请手动重启', 'error');
+            showStatus('重启失败，请手动重启', 'error');
         }
     })
     .catch(error => {
         // 请求可能因为重启而中断，这是正常的
-        showStatus('🔄 路由器正在重启，请等待约1分钟后重新访问...', 'info');
+        showStatus('路由器正在重启，请等待约1分钟后重新访问...', 'info');
     });
 }
 
@@ -540,10 +543,10 @@ document.addEventListener('DOMContentLoaded', function() {
             .then(response => response.json())
             .then(result => {
                 if (result.success) {
-                    showStatus('✅ ' + result.message, 'success');
+                    showStatus(result.message, 'success');
                     loadBackupList();
                 } else {
-                    showStatus('❌ ' + result.message, 'error');
+                    showStatus(result.message, 'error');
                 }
             })
             .finally(() => {
@@ -555,7 +558,7 @@ document.addEventListener('DOMContentLoaded', function() {
     // 刷新列表按钮
     document.getElementById('refresh-list').addEventListener('click', function() {
         loadBackupList();
-        showStatus('🔄 备份列表已刷新', 'info');
+        showStatus('备份列表已刷新', 'info');
     });
     
     // 恢复确认对话框事件
@@ -583,7 +586,8 @@ document.addEventListener('DOMContentLoaded', function() {
     text-decoration: none;
     cursor: pointer;
     transition: all 0.2s;
-    margin: 2px;
+    margin: 1px;
+    font-size: 11px;
 }
 
 .cbi-button-apply {
@@ -613,17 +617,21 @@ document.addEventListener('DOMContentLoaded', function() {
 .table {
     border: 1px solid #ddd;
     border-radius: 4px;
+    width: 100%;
 }
 
 .table-titles {
     background: #f5f5f5;
     border-bottom: 1px solid #ddd;
     font-weight: bold;
+    display: flex;
 }
 
 .table-cell {
-    padding: 8px 12px;
+    padding: 10px 12px;
     border-right: 1px solid #eee;
+    display: flex;
+    align-items: center;
 }
 
 .table-cell:last-child {
@@ -633,7 +641,8 @@ document.addEventListener('DOMContentLoaded', function() {
 .table-row {
     border-bottom: 1px solid #eee;
     display: flex;
-    align-items: center;
+    align-items: flex-start;
+    min-height: 50px;
 }
 
 .table-row:last-child {
@@ -667,6 +676,19 @@ document.addEventListener('DOMContentLoaded', function() {
     background: #d1ecf1;
     color: #0c5460;
     border: 1px solid #bee5eb;
+}
+
+/* 文件名显示优化 */
+.file-name {
+    font-weight: bold;
+    word-break: break-all;
+    line-height: 1.4;
+}
+
+.file-time {
+    font-size: 11px;
+    color: #666;
+    margin-top: 2px;
 }
 </style>
 <%+footer%>
@@ -778,15 +800,15 @@ restore_backup() {
         
         echo ""
         echo "恢复成功！"
-        echo "✅ 所有配置已从备份文件恢复"
+        echo "所有配置已从备份文件恢复"
         echo ""
-        echo "💡 重要提示：系统将自动重启以确保："
-        echo "   • 所有服务使用恢复后的配置重新启动"
-        echo "   • 清理内存中旧配置的缓存数据"
-        echo "   • 避免运行中程序配置不一致的问题"
-        echo "   • 保证网络服务的稳定运行"
+        echo "重要提示：系统将自动重启以确保："
+        echo "   所有服务使用恢复后的配置重新启动"
+        echo "   清理内存中旧配置的缓存数据"
+        echo "   避免运行中程序配置不一致的问题"
+        echo "   保证网络服务的稳定运行"
         echo ""
-        echo "🔄 请等待系统自动重启..."
+        echo "请等待系统自动重启..."
         return 0
     else
         echo "恢复失败！"
@@ -818,27 +840,276 @@ esac
 EOF
 chmod +x files/usr/bin/overlay-backup
 
+# ==================== 4. 彻底修复USB自动挂载 ====================
+echo "彻底修复USB自动挂载..."
+
+# 创建USB自动挂载配置
+mkdir -p files/etc/hotplug.d/block
+cat > files/etc/hotplug.d/block/10-mount << 'EOF'
+#!/bin/sh
+# USB设备自动挂载脚本 - 增强版本
+
+[ -z "$DEVNAME" ] && exit 0
+
+logger "USB存储设备事件: ACTION=$ACTION, DEVICE=$DEVNAME"
+
+case "$ACTION" in
+    add)
+        # 设备添加
+        logger "检测到存储设备: /dev/$DEVNAME"
+        
+        # 等待设备就绪
+        sleep 3
+        
+        # 尝试获取文件系统类型
+        TYPE=""
+        if command -v blkid >/dev/null 2>&1; then
+            TYPE=$(blkid -s TYPE -o value "/dev/$DEVNAME" 2>/dev/null)
+        fi
+        
+        if [ -n "$TYPE" ]; then
+            logger "设备 /dev/$DEVNAME 文件系统类型: $TYPE"
+            
+            # 创建挂载点
+            MOUNT_POINT="/mnt/$DEVNAME"
+            mkdir -p "$MOUNT_POINT"
+            
+            # 尝试挂载
+            case "$TYPE" in
+                ext4|ext3|ext2|vfat|ntfs|exfat|f2fs)
+                    logger "尝试挂载 /dev/$DEVNAME 到 $MOUNT_POINT"
+                    
+                    # 设置挂载选项
+                    case "$TYPE" in
+                        vfat) MOUNT_OPTS="umask=000,utf8=true" ;;
+                        ntfs) MOUNT_OPTS="umask=000" ;;
+                        *) MOUNT_OPTS="" ;;
+                    esac
+                    
+                    if mount -t "$TYPE" -o "$MOUNT_OPTS" "/dev/$DEVNAME" "$MOUNT_POINT" 2>/dev/null; then
+                        logger "成功挂载 $DEVNAME ($TYPE) 到 $MOUNT_POINT"
+                        
+                        # 创建符号链接到 /mnt/usb
+                        if [ ! -L "/mnt/usb" ] && [ ! -e "/mnt/usb" ]; then
+                            ln -sf "$MOUNT_POINT" "/mnt/usb"
+                            logger "创建符号链接: $MOUNT_POINT -> /mnt/usb"
+                        fi
+                    else
+                        logger "挂载 $DEVNAME ($TYPE) 失败"
+                        rmdir "$MOUNT_POINT" 2>/dev/null
+                    fi
+                    ;;
+                *)
+                    logger "不支持的文件系统: $TYPE (设备: $DEVNAME)"
+                    ;;
+            esac
+        else
+            logger "无法识别设备 /dev/$DEVNAME 的文件系统类型"
+        fi
+        ;;
+        
+    remove)
+        # 设备移除
+        MOUNT_POINT="/mnt/$DEVNAME"
+        
+        logger "设备移除: /dev/$DEVNAME"
+        
+        if mountpoint -q "$MOUNT_POINT"; then
+            umount "$MOUNT_POINT"
+            rmdir "$MOUNT_POINT" 2>/dev/null
+            logger "已卸载存储设备: $DEVNAME"
+        fi
+        
+        # 清理符号链接
+        if [ -L "/mnt/usb" ] && [ "$(readlink /mnt/usb)" = "$MOUNT_POINT" ]; then
+            rm -f "/mnt/usb"
+            logger "移除符号链接: /mnt/usb"
+        fi
+        ;;
+esac
+
+exit 0
+EOF
+chmod +x files/etc/hotplug.d/block/10-mount
+
+# 创建USB设备检测脚本
+mkdir -p files/usr/bin
+cat > files/usr/bin/usb-detect << 'EOF'
+#!/bin/sh
+# USB设备检测脚本
+
+echo "=== USB设备检测 ==="
+echo "扫描时间: $(date)"
+
+echo ""
+echo "1. 已连接的USB设备:"
+lsusb 2>/dev/null || echo "lsusb命令不可用"
+
+echo ""
+echo "2. 块设备信息:"
+lsblk 2>/dev/null || blkid 2>/dev/null || echo "无法获取块设备信息"
+
+echo ""
+echo "3. 挂载点信息:"
+mount | grep -E "(/mnt/|/dev/sd)" || echo "没有找到USB设备挂载"
+
+echo ""
+echo "4. 内核USB消息:"
+dmesg | grep -i usb | tail -10
+
+echo ""
+echo "检测完成"
+EOF
+chmod +x files/usr/bin/usb-detect
+
+# 创建手动挂载脚本
+cat > files/usr/bin/mount-usb << 'EOF'
+#!/bin/sh
+# 手动挂载USB设备脚本
+
+if [ "$1" = "-h" ] || [ "$1" = "--help" ]; then
+    echo "用法: $0 [设备名]"
+    echo "示例: $0 sda1"
+    echo "如果不指定设备名，将列出所有可用设备"
+    exit 0
+fi
+
+if [ -z "$1" ]; then
+    echo "可用的USB存储设备:"
+    echo "=================="
+    blkid | grep -E "/dev/sd|/dev/mmc" | while read line; do
+        DEVICE=$(echo "$line" | cut -d: -f1)
+        TYPE=$(echo "$line" | grep -o 'TYPE="[^"]*"' | cut -d'"' -f2)
+        LABEL=$(echo "$line" | grep -o 'LABEL="[^"]*"' | cut -d'"' -f2)
+        echo "设备: $DEVICE | 类型: $TYPE | 标签: $LABEL"
+    done
+    echo ""
+    echo "请使用: $0 [设备名，如sda1] 来挂载设备"
+    exit 0
+fi
+
+DEVICE="$1"
+DEVICE_PATH="/dev/$DEVICE"
+
+if [ ! -e "$DEVICE_PATH" ]; then
+    echo "错误: 设备 $DEVICE_PATH 不存在"
+    exit 1
+fi
+
+TYPE=$(blkid -s TYPE -o value "$DEVICE_PATH" 2>/dev/null)
+if [ -z "$TYPE" ]; then
+    echo "错误: 无法识别设备 $DEVICE_PATH 的文件系统类型"
+    exit 1
+fi
+
+MOUNT_POINT="/mnt/$DEVICE"
+mkdir -p "$MOUNT_POINT"
+
+echo "挂载设备: $DEVICE_PATH"
+echo "文件系统: $TYPE"
+echo "挂载点: $MOUNT_POINT"
+
+case "$TYPE" in
+    ext4|ext3|ext2|vfat|ntfs|exfat|f2fs)
+        if mount -t "$TYPE" "$DEVICE_PATH" "$MOUNT_POINT" 2>/dev/null; then
+            echo "挂载成功!"
+            echo "设备已挂载到: $MOUNT_POINT"
+            
+            # 创建便捷访问链接
+            if [ ! -L "/mnt/usb" ] && [ ! -e "/mnt/usb" ]; then
+                ln -sf "$MOUNT_POINT" "/mnt/usb"
+                echo "创建符号链接: /mnt/usb -> $MOUNT_POINT"
+            fi
+            
+            # 显示使用情况
+            df -h "$MOUNT_POINT"
+        else
+            echo "挂载失败!"
+            rmdir "$MOUNT_POINT" 2>/dev/null
+        fi
+        ;;
+    *)
+        echo "不支持的文件系统: $TYPE"
+        ;;
+esac
+EOF
+chmod +x files/usr/bin/mount-usb
+
+# ==================== 5. 初始化脚本 ====================
+echo "设置初始化脚本..."
+mkdir -p files/etc/uci-defaults
+
+cat > files/etc/uci-defaults/99-custom-setup << 'EOF'
+#!/bin/sh
+# 自定义初始化脚本
+
+echo "执行自定义初始化..."
+
+# 启用定时任务
+/etc/init.d/cron enable
+/etc/init.d/cron start
+
+# 设置时区
+echo "Asia/Shanghai" > /tmp/TZ
+
+# 确保备份脚本可执行
+[ -x "/usr/bin/overlay-backup" ] || chmod +x /usr/bin/overlay-backup
+[ -x "/usr/bin/mount-usb" ] || chmod +x /usr/bin/mount-usb
+[ -x "/usr/bin/usb-detect" ] || chmod +x /usr/bin/usb-detect
+
+# 创建挂载点目录
+mkdir -p /mnt/usb
+
+# 重新启动自动挂载服务
+/etc/init.d/automount enable
+/etc/init.d/automount start
+
+# 扫描并挂载现有的USB设备
+echo "扫描现有USB设备..."
+for device in /dev/sd*; do
+    if [ -b "$device" ] && [ "$device" != "/dev/sda" ]; then
+        echo "发现设备: $device"
+        /usr/bin/mount-usb $(basename "$device") >/dev/null 2>&1 &
+    fi
+done
+
+# 安装自定义IPK包
+if [ -d "/packages" ]; then
+    echo "安装自定义IPK包..."
+    for ipk in /packages/*.ipk; do
+        if [ -f "$ipk" ]; then
+            echo "安装: $(basename "$ipk")"
+            opkg install "$ipk" >/dev/null 2>&1 && echo "成功" || echo "失败"
+        fi
+    done
+    rm -rf /packages
+fi
+
+echo "自定义初始化完成"
+exit 0
+EOF
+chmod +x files/etc/uci-defaults/99-custom-setup
+
 echo ""
 echo "=========================================="
 echo "✅ WNDR3800 问题修复完成！"
 echo "=========================================="
 echo "📋 修复内容:"
 echo ""
-echo "🔧 问题1 - 恢复功能修复:"
-echo "  • ✅ 修复JavaScript文件传递逻辑"
-echo "  • ✅ 使用URLSearchParams替代FormData"
-echo "  • ✅ 确保文件名正确传递到后端"
-echo "  • ✅ 后端增加调试信息和路径处理"
+echo "🔧 问题修复:"
+echo "  • ✅ 移除调试信息，修复JSON解析错误"
+echo "  • ✅ 取消所有小图标，只保留文字"
+echo "  • ✅ 文件名显示长度增加50%"
+echo "  • ✅ 备份日期在文件名下方单独显示"
 echo ""
-echo "🎨 问题2 - 按钮样式优化:"
-echo "  • ✅ 简化表格布局（4列改为3列）"
-echo "  • ✅ 操作按钮改为横向排列"
-echo "  • ✅ 减小按钮尺寸和内边距"
-echo "  • ✅ 优化整体CSS样式"
-echo "  • ✅ 所有按钮现在都在框内显示"
+echo "🎨 界面优化:"
+echo "  • 按钮文字：恢复、下载、删除"
+echo "  • 主按钮：创建备份、刷新列表"
+echo "  • 表格布局更清晰"
+echo "  • 状态提示更简洁"
 echo ""
 echo "💡 使用说明:"
 echo "  • 备份恢复: 系统 → Overlay Backup"
 echo "  • 恢复功能现在可以正常使用"
-echo "  • 按钮布局更简洁紧凑"
+echo "  • 界面简洁，无图标干扰"
 echo "=========================================="
