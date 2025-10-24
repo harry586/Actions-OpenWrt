@@ -1,7 +1,7 @@
 #!/bin/bash
 # =============================================
 # OpenWrt DIY 脚本第二部分 - 最终修复版本
-# 彻底解决恢复功能参数传递问题
+# 使用与下载/删除相同的参数传递方式
 # =============================================
 
 echo "开始应用修复的Overlay备份系统..."
@@ -48,7 +48,7 @@ mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 mkdir -p files/usr/bin
 
-# 创建彻底修复的控制器
+# 创建修复的控制器 - 使用与下载/删除相同的参数传递方式
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
@@ -82,35 +82,19 @@ function restore_backup()
     local sys = require "luci.sys"
     local fs = require "nixio.fs"
     
-    -- 从POST数据获取文件名
-    local filename = http.formvalue("filename")
+    -- 使用与下载/删除相同的参数获取方式
+    local file = http.formvalue("file")
     
-    -- 如果POST获取失败，尝试从URL参数获取
-    if not filename or filename == "" then
-        local query_string = http.getenv("QUERY_STRING") or ""
-        if query_string:find("filename=") then
-            filename = query_string:match("filename=([^&]*)")
-            if filename then
-                -- URL解码
-                filename = filename:gsub("+", " ")
-                filename = filename:gsub("%%(%x%x)", function(x) 
-                    return string.char(tonumber(x, 16)) 
-                end)
-            end
-        end
-    end
-    
-    -- 最终检查
-    if not filename or filename == "" then
+    if not file or file == "" then
         http.prepare_content("application/json")
         http.write_json({success = false, message = "未选择恢复文件"})
         return
     end
     
     -- 处理文件路径
-    local filepath = "/tmp/" .. filename
+    local filepath = file
     if not fs.stat(filepath) then
-        filepath = filename  -- 如果已经是完整路径
+        filepath = "/tmp/" .. file
     end
     
     -- 检查文件是否存在
@@ -354,7 +338,7 @@ function loadBackupList() {
                     <div class="table-cell" style="width: 15%;">
                         <div style="display: flex; gap: 6px; flex-wrap: nowrap; justify-content: center; align-items: center;">
                             <button class="btn-primary btn-small restore-btn" 
-                                    data-file="${backup.name}" 
+                                    data-file="${backup.path}" 
                                     title="恢复此备份">
                                 恢复
                             </button>
@@ -423,7 +407,8 @@ function bindTableEvents() {
     // 恢复按钮
     document.querySelectorAll('.restore-btn').forEach(btn => {
         btn.addEventListener('click', function() {
-            const filename = this.getAttribute('data-file');
+            const filepath = this.getAttribute('data-file');
+            const filename = filepath.split('/').pop(); // 从完整路径中提取文件名
             showRestoreConfirm(filename);
         });
     });
@@ -471,7 +456,7 @@ function hideRestoreConfirm() {
     currentRestoreFile = '';
 }
 
-// 执行恢复操作 - 使用POST请求传递参数
+// 执行恢复操作 - 使用与下载/删除相同的参数传递方式
 function performRestore() {
     if (!currentRestoreFile) {
         showStatus('未选择恢复文件', 'error');
@@ -481,13 +466,11 @@ function performRestore() {
     hideRestoreConfirm();
     showStatus('正在恢复备份，请稍候...', 'info');
     
-    // 使用POST请求传递参数
-    const formData = new FormData();
-    formData.append('filename', currentRestoreFile);
+    // 使用URL参数传递文件名，与下载/删除保持一致
+    const url = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>?file=' + encodeURIComponent(currentRestoreFile);
     
-    fetch('<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>', {
-        method: 'POST',
-        body: formData
+    fetch(url, {
+        method: 'POST'
     })
     .then(response => {
         if (!response.ok) {
@@ -916,21 +899,20 @@ echo "Overlay备份系统修复完成"
 echo "=========================================="
 echo "主要修改:"
 echo ""
-echo "1. 后端Lua控制器:"
-echo "   - 优先从POST数据获取文件名"
-echo "   - 备用从URL参数获取"
-echo "   - 移除调试信息"
+echo "1. 统一参数传递方式:"
+echo "   - 恢复功能使用与下载/删除相同的参数名 'file'"
+echo "   - 使用相同的URL参数传递方式"
+echo "   - 后端使用相同的参数获取方法 http.formvalue('file')"
 echo ""
-echo "2. 前端JavaScript:"
-echo "   - 使用POST请求和FormData传递参数"
-echo "   - 移除虚假的成功提示"
-echo "   - 保持简约界面设计"
+echo "2. 前端修改:"
+echo "   - 恢复按钮传递完整文件路径"
+echo "   - 从路径中提取文件名用于显示"
+echo "   - 使用URL参数传递文件名"
 echo ""
-echo "3. 简约界面:"
-echo "   - 绿色恢复按钮"
-echo "   - 蓝色下载按钮"
-echo "   - 红色删除按钮"
-echo "   - 优雅的表格布局"
+echo "3. 后端修改:"
+echo "   - 简化参数获取逻辑"
+echo "   - 自动处理文件路径"
+echo "   - 与下载/删除功能保持一致"
 echo ""
-echo "现在应该能正常恢复备份了"
+echo "现在恢复功能应该与下载/删除功能使用相同的参数传递机制"
 echo "=========================================="
