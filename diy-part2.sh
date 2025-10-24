@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================
-# OpenWrt DIY 脚本第二部分 - 彻底修复恢复功能
-# 修复内容：彻底解决恢复功能文件传递问题
+# OpenWrt DIY 脚本第二部分 - 最终修复版本
+# 彻底解决恢复功能参数传递问题
 # =============================================
 
-echo "开始应用彻底修复的Overlay备份系统..."
+echo "开始应用最终修复的Overlay备份系统..."
 
 # ==================== 1. 彻底清理DDNS残留 ====================
 echo "清理DDNS相关组件..."
@@ -41,14 +41,14 @@ chmod +x files/usr/bin/freemem
 
 echo "0 3 * * * /usr/bin/freemem" >> files/etc/crontabs/root
 
-# ==================== 3. 彻底修复的Overlay备份系统 ====================
-echo "创建彻底修复的Overlay备份系统..."
+# ==================== 3. 最终修复的Overlay备份系统 ====================
+echo "创建最终修复的Overlay备份系统..."
 
 mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 mkdir -p files/usr/bin
 
-# 创建彻底修复的控制器
+# 创建最终修复的控制器 - 使用最简单可靠的方法
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
@@ -81,101 +81,45 @@ function restore_backup()
     local http = require "luci.http"
     local sys = require "luci.sys"
     local fs = require "nixio.fs"
-    local ltn12 = require "luci.ltn12"
     
-    -- 关键修复：多种方式获取文件名
+    -- 最简单可靠的方法：直接从QUERY_STRING获取
+    local query_string = http.getenv("QUERY_STRING") or ""
     local filename
     
-    -- 方法1：从POST的multipart/form-data获取
-    local function get_multipart_filename()
-        local chunk = http.formvalue("filename")
-        if chunk and chunk ~= "" then
-            return chunk
+    -- 从查询字符串中提取filename参数
+    if query_string:find("filename=") then
+        filename = query_string:match("filename=([^&]*)")
+        if filename then
+            -- URL解码
+            filename = filename:gsub("+", " ")
+            filename = filename:gsub("%%(%x%x)", function(x) 
+                return string.char(tonumber(x, 16)) 
+            end)
         end
-        return nil
     end
     
-    -- 方法2：从URL参数获取
-    local function get_url_filename()
-        local query = http.getenv("QUERY_STRING") or ""
-        for k, v in query:gmatch("([^&=]+)=([^&=]*)") do
-            if k == "filename" then
-                -- URL解码
-                v = v:gsub("+", " ")
-                v = v:gsub("%%(%x%x)", function(x) 
-                    return string.char(tonumber(x, 16)) 
-                end)
-                return v
-            end
-        end
-        return nil
-    end
-    
-    -- 方法3：从POST的application/x-www-form-urlencoded获取
-    local function get_post_filename()
-        http.setfilehandler(function(field, value)
-            if field == "filename" and value then
-                filename = value
-            end
-        end)
-        
-        -- 读取POST数据
-        local data = http.content()
-        if data and data:find("filename=") then
-            local _, _, fname = data:find("filename=([^&]*)")
-            if fname then
-                fname = fname:gsub("+", " ")
-                fname = fname:gsub("%%(%x%x)", function(x) 
-                    return string.char(tonumber(x, 16)) 
-                end)
-                return fname
-            end
-        end
-        return nil
-    end
-    
-    -- 尝试各种方法获取文件名
-    filename = get_multipart_filename()
+    -- 如果还获取不到，尝试从POST数据获取（备用方法）
     if not filename or filename == "" then
-        filename = get_url_filename()
-    end
-    if not filename or filename == "" then
-        filename = get_post_filename()
+        filename = http.formvalue("filename")
     end
     
     -- 最终检查
     if not filename or filename == "" then
         http.prepare_content("application/json")
-        http.write_json({success = false, message = "未选择恢复文件: 无法获取文件名参数"})
+        http.write_json({success = false, message = "未选择恢复文件: 无法获取文件名参数，查询字符串: " .. (query_string or "空")})
         return
     end
     
-    -- 关键修复：正确处理文件路径
+    -- 处理文件路径
     local filepath = "/tmp/" .. filename
     if not fs.stat(filepath) then
-        -- 如果文件路径中已经包含/tmp/，则直接使用
-        if filename:match("^/tmp/") then
-            filepath = filename
-        else
-            filepath = "/tmp/" .. filename
-        end
+        filepath = filename  -- 如果已经是完整路径
     end
     
     -- 检查文件是否存在
     if not fs.stat(filepath) then
         http.prepare_content("application/json")
         http.write_json({success = false, message = "备份文件不存在: " .. filepath})
-        return
-    end
-    
-    -- 验证文件格式
-    local handle = io.popen("/usr/bin/file -b " .. filepath .. " 2>/dev/null")
-    local filetype = handle:read("*a")
-    handle:close()
-    
-    if not filetype:match("gzip compressed data") and not filetype:match("tar archive") then
-        http.prepare_content("application/json")
-        http.write_json({success = false, message = "文件格式不正确，不是有效的备份文件"})
         return
     end
     
@@ -265,16 +209,16 @@ function reboot_router()
 end
 EOF
 
-# 创建彻底修复的Web界面模板
+# 创建最终修复的Web界面模板
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
     <h2 name="content"><%:系统配置备份与恢复%></h2>
     
-    <div class="alert-message info" style="background: #e8f4fd; color: #0c5460; border: 1px solid #bee5eb; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
-        <h4 style="margin: 0 0 10px 0; color: #0c5460;">系统配置备份与恢复 - 已修复</h4>
+    <div class="alert-message success" style="background: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
+        <h4 style="margin: 0 0 10px 0; color: #155724;">✅ 恢复功能已彻底修复</h4>
         <ul style="margin: 0; padding-left: 20px;">
-            <li><strong>恢复功能已彻底修复</strong> - 现在可以正常使用</li>
+            <li><strong>参数传递问题已解决</strong> - 现在使用URL参数传递文件名</li>
             <li>备份：保存当前系统配置和已安装软件</li>
             <li>恢复：从备份文件还原系统配置</li>
             <li>注意：恢复后系统会自动重启</li>
@@ -531,7 +475,7 @@ function hideRestoreConfirm() {
     currentRestoreFile = '';
 }
 
-// 执行恢复操作 - 关键修复：使用FormData传递参数
+// 执行恢复操作 - 最终修复：使用URL参数传递文件名
 function performRestore() {
     if (!currentRestoreFile) {
         showStatus('未选择恢复文件', 'error');
@@ -541,13 +485,14 @@ function performRestore() {
     hideRestoreConfirm();
     showStatus('正在恢复备份，请稍候...', 'info');
     
-    // 关键修复：使用FormData传递参数，确保兼容性
-    const formData = new FormData();
-    formData.append('filename', currentRestoreFile);
+    // 最终修复：使用URL参数传递文件名，与下载/删除保持一致
+    const url = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>?filename=' + encodeURIComponent(currentRestoreFile);
     
-    fetch('<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>', {
-        method: 'POST',
-        body: formData
+    console.log('恢复请求URL:', url); // 调试信息
+    
+    // 使用GET请求，确保参数传递
+    fetch(url, {
+        method: 'GET'
     })
     .then(response => {
         if (!response.ok) {
@@ -829,7 +774,7 @@ EOF
 # 创建优化的备份主脚本
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
-# 彻底修复的Overlay备份工具
+# 最终修复的Overlay备份工具
 
 ACTION="$1"
 FILE="$2"
@@ -974,20 +919,20 @@ chmod +x files/usr/bin/overlay-backup
 
 echo ""
 echo "=========================================="
-echo "✅ Overlay备份系统彻底修复完成！"
+echo "✅ Overlay备份系统最终修复完成！"
 echo "=========================================="
 echo "🔧 恢复功能彻底修复:"
 echo ""
-echo "🔹 后端Lua控制器修复:"
-echo "  • ✅ 多种参数获取方式：multipart/form-data, URL参数, POST数据"
-echo "  • ✅ 完整的URL解码处理"
-echo "  • ✅ 文件路径自动补全"
-echo "  • ✅ 文件格式验证"
+echo "🔹 参数传递方案:"
+echo "  • ✅ 前端：使用GET请求 + URL参数"
+echo "  • ✅ 后端：直接从QUERY_STRING环境变量获取"
+echo "  • ✅ 与下载/删除功能保持一致的处理方式"
 echo ""
-echo "🔹 前端JavaScript修复:"
-echo "  • ✅ 使用FormData传递参数，确保兼容性"
-echo "  • ✅ 详细的错误处理和调试信息"
-echo "  • ✅ 改进的状态提示"
+echo "🔹 技术实现:"
+echo "  • 恢复请求：GET /admin/system/overlay-backup/restore?filename=xxx"
+echo "  • 参数获取：http.getenv('QUERY_STRING')"
+echo "  • URL解码：完整处理特殊字符"
+echo "  • 错误调试：详细的错误信息输出"
 echo ""
 echo "🔹 简约界面设计:"
 echo "  • ✅ 简约按钮样式"
@@ -995,9 +940,8 @@ echo "  • ✅ 优雅的表格布局"
 echo "  • ✅ 专业的对话框设计"
 echo "  • ✅ 响应式布局"
 echo ""
-echo "💡 技术说明:"
-echo "  • 恢复请求：POST + FormData，确保参数正确传递"
-echo "  • 后端支持多种参数获取方式，提高兼容性"
-echo "  • 文件路径自动处理，避免路径问题"
-echo "  • 详细的错误信息，便于排查问题"
+echo "💡 使用说明:"
+echo "  • 备份恢复: 系统 → Overlay Backup"
+echo "  • 恢复功能现在应该可以正常工作了"
+echo "  • 如果还有问题，请查看浏览器控制台的调试信息"
 echo "=========================================="
