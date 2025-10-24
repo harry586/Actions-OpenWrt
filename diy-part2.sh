@@ -4,7 +4,7 @@
 # 彻底解决恢复功能参数传递问题
 # =============================================
 
-echo "开始应用最终修复的Overlay备份系统..."
+echo "开始应用修复的Overlay备份系统..."
 
 # ==================== 1. 彻底清理DDNS残留 ====================
 echo "清理DDNS相关组件..."
@@ -41,14 +41,14 @@ chmod +x files/usr/bin/freemem
 
 echo "0 3 * * * /usr/bin/freemem" >> files/etc/crontabs/root
 
-# ==================== 3. 最终修复的Overlay备份系统 ====================
-echo "创建最终修复的Overlay备份系统..."
+# ==================== 3. 彻底修复的Overlay备份系统 ====================
+echo "创建修复的Overlay备份系统..."
 
 mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 mkdir -p files/usr/bin
 
-# 创建最终修复的控制器 - 使用最简单可靠的方法
+# 创建彻底修复的控制器
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
@@ -82,31 +82,28 @@ function restore_backup()
     local sys = require "luci.sys"
     local fs = require "nixio.fs"
     
-    -- 最简单可靠的方法：直接从QUERY_STRING获取
-    local query_string = http.getenv("QUERY_STRING") or ""
-    local filename
+    -- 从POST数据获取文件名
+    local filename = http.formvalue("filename")
     
-    -- 从查询字符串中提取filename参数
-    if query_string:find("filename=") then
-        filename = query_string:match("filename=([^&]*)")
-        if filename then
-            -- URL解码
-            filename = filename:gsub("+", " ")
-            filename = filename:gsub("%%(%x%x)", function(x) 
-                return string.char(tonumber(x, 16)) 
-            end)
-        end
-    end
-    
-    -- 如果还获取不到，尝试从POST数据获取（备用方法）
+    -- 如果POST获取失败，尝试从URL参数获取
     if not filename or filename == "" then
-        filename = http.formvalue("filename")
+        local query_string = http.getenv("QUERY_STRING") or ""
+        if query_string:find("filename=") then
+            filename = query_string:match("filename=([^&]*)")
+            if filename then
+                -- URL解码
+                filename = filename:gsub("+", " ")
+                filename = filename:gsub("%%(%x%x)", function(x) 
+                    return string.char(tonumber(x, 16)) 
+                end)
+            end
+        end
     end
     
     -- 最终检查
     if not filename or filename == "" then
         http.prepare_content("application/json")
-        http.write_json({success = false, message = "未选择恢复文件: 无法获取文件名参数，查询字符串: " .. (query_string or "空")})
+        http.write_json({success = false, message = "未选择恢复文件"})
         return
     end
     
@@ -209,16 +206,15 @@ function reboot_router()
 end
 EOF
 
-# 创建最终修复的Web界面模板
+# 创建修复的Web界面模板
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
     <h2 name="content"><%:系统配置备份与恢复%></h2>
     
-    <div class="alert-message success" style="background: #d4edda; color: #155724; border: 1px solid #c3e6cb; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
-        <h4 style="margin: 0 0 10px 0; color: #155724;">✅ 恢复功能已彻底修复</h4>
+    <div class="alert-message info" style="background: #e8f4fd; color: #0c5460; border: 1px solid #bee5eb; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
+        <h4 style="margin: 0 0 10px 0; color: #0c5460;">系统配置备份与恢复</h4>
         <ul style="margin: 0; padding-left: 20px;">
-            <li><strong>参数传递问题已解决</strong> - 现在使用URL参数传递文件名</li>
             <li>备份：保存当前系统配置和已安装软件</li>
             <li>恢复：从备份文件还原系统配置</li>
             <li>注意：恢复后系统会自动重启</li>
@@ -283,10 +279,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
     <!-- 重启倒计时对话框 -->
     <div id="reboot-countdown" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001;">
         <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; min-width: 500px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.3);">
-            <h2 style="color: #27ae60; margin-top: 0; margin-bottom: 20px;">✅ 恢复成功</h2>
+            <h2 style="color: #27ae60; margin-top: 0; margin-bottom: 20px;">恢复成功</h2>
             <div style="font-size: 48px; color: #2ecc71; margin: 20px 0; font-weight: bold;" id="countdown-number">5</div>
             <p style="font-size: 16px; margin: 10px 0; color: #34495e;">系统将在 <span id="countdown-display" style="color: #3498db; font-weight: bold;">5秒</span> 后自动重启</p>
-            <div style="background: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0; text-align: left;">
+            <div style="background: #f0f8ff; padding: 15px; border-radius: 6px; margin: 20px 0; text-align: left;">
                 <h4 style="margin: 0 0 10px 0; color: #3498db;">重启的重要性：</h4>
                 <ul style="margin: 0; padding-left: 20px; color: #7f8c8d;">
                     <li>确保所有服务使用恢复后的配置启动</li>
@@ -332,7 +328,7 @@ function loadBackupList() {
             
             noBackups.style.display = 'none';
             
-            // 填充表格 - 简约风格
+            // 填充表格
             backups.forEach(backup => {
                 const row = document.createElement('div');
                 row.className = 'table-row';
@@ -475,7 +471,7 @@ function hideRestoreConfirm() {
     currentRestoreFile = '';
 }
 
-// 执行恢复操作 - 最终修复：使用URL参数传递文件名
+// 执行恢复操作 - 使用POST请求传递参数
 function performRestore() {
     if (!currentRestoreFile) {
         showStatus('未选择恢复文件', 'error');
@@ -485,14 +481,13 @@ function performRestore() {
     hideRestoreConfirm();
     showStatus('正在恢复备份，请稍候...', 'info');
     
-    // 最终修复：使用URL参数传递文件名，与下载/删除保持一致
-    const url = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>?filename=' + encodeURIComponent(currentRestoreFile);
+    // 使用POST请求传递参数
+    const formData = new FormData();
+    formData.append('filename', currentRestoreFile);
     
-    console.log('恢复请求URL:', url); // 调试信息
-    
-    // 使用GET请求，确保参数传递
-    fetch(url, {
-        method: 'GET'
+    fetch('<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>', {
+        method: 'POST',
+        body: formData
     })
     .then(response => {
         if (!response.ok) {
@@ -501,7 +496,6 @@ function performRestore() {
         return response.json();
     })
     .then(result => {
-        console.log('恢复响应:', result); // 调试信息
         if (result.success) {
             // 恢复成功，显示重启倒计时
             showRebootCountdown();
@@ -510,7 +504,6 @@ function performRestore() {
         }
     })
     .catch(error => {
-        console.error('恢复请求失败:', error);
         showStatus('恢复失败: ' + error.message, 'error');
     });
 }
@@ -774,7 +767,7 @@ EOF
 # 创建优化的备份主脚本
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
-# 最终修复的Overlay备份工具
+# Overlay备份工具
 
 ACTION="$1"
 FILE="$2"
@@ -919,29 +912,25 @@ chmod +x files/usr/bin/overlay-backup
 
 echo ""
 echo "=========================================="
-echo "✅ Overlay备份系统最终修复完成！"
+echo "Overlay备份系统修复完成"
 echo "=========================================="
-echo "🔧 恢复功能彻底修复:"
+echo "主要修改:"
 echo ""
-echo "🔹 参数传递方案:"
-echo "  • ✅ 前端：使用GET请求 + URL参数"
-echo "  • ✅ 后端：直接从QUERY_STRING环境变量获取"
-echo "  • ✅ 与下载/删除功能保持一致的处理方式"
+echo "1. 后端Lua控制器:"
+echo "   - 优先从POST数据获取文件名"
+echo "   - 备用从URL参数获取"
+echo "   - 移除调试信息"
 echo ""
-echo "🔹 技术实现:"
-echo "  • 恢复请求：GET /admin/system/overlay-backup/restore?filename=xxx"
-echo "  • 参数获取：http.getenv('QUERY_STRING')"
-echo "  • URL解码：完整处理特殊字符"
-echo "  • 错误调试：详细的错误信息输出"
+echo "2. 前端JavaScript:"
+echo "   - 使用POST请求和FormData传递参数"
+echo "   - 移除虚假的成功提示"
+echo "   - 保持简约界面设计"
 echo ""
-echo "🔹 简约界面设计:"
-echo "  • ✅ 简约按钮样式"
-echo "  • ✅ 优雅的表格布局"
-echo "  • ✅ 专业的对话框设计"
-echo "  • ✅ 响应式布局"
+echo "3. 简约界面:"
+echo "   - 绿色恢复按钮"
+echo "   - 蓝色下载按钮"
+echo "   - 红色删除按钮"
+echo "   - 优雅的表格布局"
 echo ""
-echo "💡 使用说明:"
-echo "  • 备份恢复: 系统 → Overlay Backup"
-echo "  • 恢复功能现在应该可以正常工作了"
-echo "  • 如果还有问题，请查看浏览器控制台的调试信息"
+echo "现在应该能正常恢复备份了"
 echo "=========================================="
