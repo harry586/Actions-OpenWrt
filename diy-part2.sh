@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================
-# OpenWrt DIY 脚本第二部分 - 最终修复版本
-# 重点修复：恢复功能参数传递问题
+# OpenWrt DIY 脚本第二部分 - 彻底修复恢复功能
+# 重点修复：恢复功能参数传递为空的问题
 # =============================================
 
-echo "开始应用修复的Overlay备份系统..."
+echo "开始应用彻底修复的Overlay备份系统..."
 
 # ==================== 1. 彻底清理DDNS残留 ====================
 echo "清理DDNS相关组件..."
@@ -42,13 +42,13 @@ chmod +x files/usr/bin/freemem
 echo "0 3 * * * /usr/bin/freemem" >> files/etc/crontabs/root
 
 # ==================== 3. 彻底修复的Overlay备份系统 ====================
-echo "创建修复的Overlay备份系统..."
+echo "创建彻底修复的Overlay备份系统..."
 
 mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 mkdir -p files/usr/bin
 
-# 创建修复的控制器 - 关键修复：统一参数传递方式
+# 创建彻底修复的控制器 - 使用GET参数传递方式
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
@@ -82,11 +82,18 @@ function restore_backup()
     local sys = require "luci.sys"
     local fs = require "nixio.fs"
     
-    -- 【关键修复】统一参数获取方式，确保与下载/删除功能一致
-    local file = http.formvalue("file")
+    -- 【彻底修复】使用GET参数方式，与下载/删除完全一致
+    local file = http.getvalue("file")
     
-    -- 【调试信息】记录接收到的参数
-    sys.exec("logger '恢复操作收到参数: file=" .. (file or "nil") .. "'")
+    -- 如果GET参数为空，尝试POST参数
+    if not file or file == "" then
+        file = http.formvalue("file")
+    end
+    
+    -- 【调试】记录所有可能的参数来源
+    sys.exec("logger '恢复调试 - GET参数: ' .. (http.getvalue('file') or 'nil')")
+    sys.exec("logger '恢复调试 - POST参数: ' .. (http.formvalue('file') or 'nil')")
+    sys.exec("logger '恢复调试 - 最终文件参数: ' .. (file or 'nil')")
     
     if not file or file == "" then
         http.prepare_content("application/json")
@@ -94,7 +101,7 @@ function restore_backup()
         return
     end
     
-    -- 【关键修复】处理文件路径，确保文件存在性检查正确
+    -- 【彻底修复】处理文件路径
     local filepath = file
     if not filepath:match("^/") then
         filepath = "/tmp/" .. filepath
@@ -102,16 +109,28 @@ function restore_backup()
     
     -- 检查文件是否存在
     if not fs.stat(filepath) then
-        -- 尝试其他可能的位置
-        local alt_path = "/tmp/backup-" .. file
-        if fs.stat(alt_path) then
-            filepath = alt_path
-        else
+        -- 尝试其他可能的位置和文件名格式
+        local alt_paths = {
+            "/tmp/" .. file,
+            "/tmp/backup-" .. file,
+            file
+        }
+        
+        for _, path in ipairs(alt_paths) do
+            if fs.stat(path) then
+                filepath = path
+                break
+            end
+        end
+        
+        if not fs.stat(filepath) then
             http.prepare_content("application/json")
             http.write_json({success = false, message = "备份文件不存在: " .. filepath})
             return
         end
     end
+    
+    sys.exec("logger '恢复操作 - 使用文件路径: " .. filepath .. "'")
     
     -- 执行恢复
     local result = sys.exec("/usr/bin/overlay-backup restore '" .. filepath .. "' 2>&1")
@@ -128,7 +147,7 @@ end
 function download_backup()
     local http = require "luci.http"
     local fs = require "nixio.fs"
-    local file = http.formvalue("file")
+    local file = http.getvalue("file")
     
     if file and fs.stat(file) then
         http.header('Content-Disposition', 'attachment; filename="' .. fs.basename(file) .. '"')
@@ -146,7 +165,7 @@ end
 function delete_backup()
     local http = require "luci.http"
     local fs = require "nixio.fs"
-    local file = http.formvalue("file")
+    local file = http.getvalue("file")
     
     if file and fs.stat(file) then
         fs.unlink(file)
@@ -199,7 +218,7 @@ function reboot_router()
 end
 EOF
 
-# 创建修复的Web界面模板 - 关键修复：统一参数传递
+# 创建彻底修复的Web界面模板 - 使用GET参数传递
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
@@ -347,8 +366,8 @@ function loadBackupList() {
                     <div class="table-cell" style="width: 15%;">
                         <div style="display: flex; gap: 6px; flex-wrap: nowrap; justify-content: center; align-items: center;">
                             <button class="btn-primary btn-small restore-btn" 
-                                    data-file="${backup.path}" 
-                                    data-name="${backup.name}"
+                                    data-file="${backup.name}" 
+                                    data-fullpath="${backup.path}"
                                     title="恢复此备份">
                                 恢复
                             </button>
@@ -414,12 +433,13 @@ function showStatus(message, type = 'info') {
 
 // 绑定表格事件
 function bindTableEvents() {
-    // 恢复按钮 - 【关键修复】传递正确的文件参数
+    // 恢复按钮 - 【彻底修复】传递文件名而非完整路径
     document.querySelectorAll('.restore-btn').forEach(btn => {
         btn.addEventListener('click', function() {
-            const filepath = this.getAttribute('data-file');  // 完整路径
-            const filename = this.getAttribute('data-name');  // 仅文件名
-            showRestoreConfirm(filename, filepath);
+            const filename = this.getAttribute('data-file');  // 仅文件名
+            const fullpath = this.getAttribute('data-fullpath'); // 完整路径（用于调试）
+            console.log('恢复按钮点击:', { filename, fullpath });
+            showRestoreConfirm(filename, fullpath);
         });
     });
     
@@ -453,9 +473,10 @@ function bindTableEvents() {
     });
 }
 
-// 显示恢复确认对话框 - 【关键修复】接收两个参数
-function showRestoreConfirm(filename, filepath) {
-    currentRestoreFile = filepath;  // 存储完整路径用于恢复
+// 显示恢复确认对话框
+function showRestoreConfirm(filename, fullpath) {
+    currentRestoreFile = filename;  // 【彻底修复】存储文件名而非完整路径
+    console.log('设置恢复文件:', currentRestoreFile, '完整路径:', fullpath);
     document.getElementById('confirm-filename').textContent = filename;
     document.getElementById('restore-confirm').style.display = 'block';
 }
@@ -466,23 +487,23 @@ function hideRestoreConfirm() {
     currentRestoreFile = '';
 }
 
-// 执行恢复操作 - 【关键修复】使用FormData传递参数
+// 执行恢复操作 - 【彻底修复】使用GET参数传递
 function performRestore() {
     if (!currentRestoreFile) {
         showStatus('未选择恢复文件', 'error');
         return;
     }
     
+    console.log('开始恢复操作，文件:', currentRestoreFile);
     hideRestoreConfirm();
     showStatus('正在恢复备份，请稍候...', 'info');
     
-    // 【关键修复】使用FormData传递文件参数，确保后端能正确接收
-    const formData = new FormData();
-    formData.append('file', currentRestoreFile);
+    // 【彻底修复】使用GET参数传递，与下载/删除完全一致
+    const url = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>?file=' + encodeURIComponent(currentRestoreFile);
+    console.log('恢复请求URL:', url);
     
-    fetch('<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>', {
-        method: 'POST',
-        body: formData
+    fetch(url, {
+        method: 'POST'  // 保持POST方法，但使用GET参数
     })
     .then(response => {
         if (!response.ok) {
@@ -491,6 +512,7 @@ function performRestore() {
         return response.json();
     })
     .then(result => {
+        console.log('恢复响应:', result);
         if (result.success) {
             // 恢复成功，显示重启倒计时
             showRebootCountdown();
@@ -499,6 +521,7 @@ function performRestore() {
         }
     })
     .catch(error => {
+        console.error('恢复错误:', error);
         showStatus('恢复失败: ' + error.message, 'error');
     });
 }
@@ -907,27 +930,32 @@ chmod +x files/usr/bin/overlay-backup
 
 echo ""
 echo "=========================================="
-echo "Overlay备份系统修复完成"
+echo "Overlay备份系统彻底修复完成"
 echo "=========================================="
-echo "主要修复内容:"
+echo "【彻底修复】恢复功能参数传递问题:"
 echo ""
-echo "【关键修复】恢复功能参数传递问题:"
-echo "   - 前端：使用FormData传递文件参数，确保参数正确传递"
-echo "   - 后端：统一参数获取方式，增强文件路径处理"
-echo "   - 调试：添加参数日志记录，便于问题排查"
+echo "问题分析:"
+echo "  - 系统日志显示: '恢复操作收到参数: file=' (空值)"
+echo "  - 前端没有正确传递文件参数到后端"
 echo ""
-echo "【前端修复】:"
-echo "   - 恢复按钮同时传递完整路径和文件名"
-echo "   - 使用FormData替代URL参数传递"
-echo "   - 增强错误处理和用户提示"
+echo "修复方案:"
+echo "  1. 前端修复:"
+echo "     - 恢复按钮传递文件名而非完整路径 (data-file='文件名')"
+echo "     - 使用GET参数传递方式，与下载/删除功能完全一致"
+echo "     - 添加详细的控制台日志用于调试"
 echo ""
-echo "【后端修复】:"
-echo "   - 统一使用http.formvalue('file')获取参数"
-echo "   - 增强文件路径自动补全逻辑"
-echo "   - 添加调试日志记录"
+echo "  2. 后端修复:"
+echo "     - 同时支持GET和POST参数获取"
+echo "     - 增强文件路径自动补全逻辑"
+echo "     - 添加详细的调试日志记录"
 echo ""
-echo "【预期效果】:"
-echo "   ✓ 恢复功能现在应该能正确识别选择的文件"
-echo "   ✓ 参数传递与下载/删除功能保持一致"
-echo "   ✓ 提供更好的错误提示和用户体验"
+echo "  3. 参数传递统一:"
+echo "     - 恢复: POST + GET参数 ?file=文件名"
+echo "     - 下载: GET参数 ?file=完整路径"
+echo "     - 删除: GET参数 ?file=完整路径"
+echo ""
+echo "预期效果:"
+echo "  ✓ 恢复功能现在应该能正确接收文件参数"
+echo "  ✓ 系统日志将显示详细的调试信息"
+echo "  ✓ 恢复操作应该能正常执行"
 echo "=========================================="
