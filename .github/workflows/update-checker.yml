@@ -13,7 +13,8 @@
 name: Update Checker
 
 env:
-  REPO_URL: https://github.com/coolsnowwolf/lede
+  # 修改为 ImmortalWrt 官方仓库
+  REPO_URL: https://github.com/immortalwrt/immortalwrt
   REPO_BRANCH: master
 
 on:
