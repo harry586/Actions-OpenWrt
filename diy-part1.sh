@@ -2,6 +2,7 @@
 # =============================================
 # ImmortalWrt DIY 脚本第一部分
 # 功能：更新feeds，设置基础环境，集成自定义包
+# 增强版：添加设备配置检查和验证
 # =============================================
 
 echo "开始执行 DIY 脚本第一部分..."
@@ -23,6 +24,22 @@ unzip zlib1g-dev file wget
 echo "更新 ImmortalWrt 源码..."
 git pull origin master
 
+# 检查设备支持 - 确保 ASUS RT-ACRH17 被正确识别
+echo "检查设备支持..."
+if [ -d "target/linux/ath79" ]; then
+    echo "✅ 找到 ath79 目标平台"
+    if [ -d "target/linux/ath79/image" ]; then
+        echo "检查 ASUS RT-ACRH17 支持..."
+        if grep -r "rt-acrh17" target/linux/ath79/image/; then
+            echo "✅ ASUS RT-ACRH17 设备支持已确认"
+        else
+            echo "⚠️  未直接找到 rt-acrh17，但继续编译过程"
+        fi
+    fi
+else
+    echo "❌ 未找到 ath79 目标平台，请检查源码"
+fi
+
 # 更新 feeds
 echo "更新并安装 feeds..."
 ./scripts/feeds update -a
@@ -31,7 +48,7 @@ echo "更新并安装 feeds..."
 # 添加自定义包目录（GitHub files/packages）
 echo "检查自定义包目录..."
 if [ -d "../../files/packages" ]; then
-    echo "找到自定义包目录，准备集成..."
+    echo "✅ 找到自定义包目录，准备集成..."
     mkdir -p package/custom
     cp -rf ../../files/packages/* package/custom/ 2>/dev/null || true
     
@@ -45,6 +62,8 @@ if [ -d "../../files/packages" ]; then
             fi
         done
     fi
+else
+    echo "ℹ️  未找到自定义包目录，跳过"
 fi
 
 # 清理可能存在的DDNS残留
@@ -66,4 +85,4 @@ find . -name "*wol*" -type d | head -5 | while read dir; do
     [ -d "$dir" ] && rm -rf "$dir" 2>/dev/null || true
 done
 
-echo "DIY 脚本第一部分执行完成！"
+echo "✅ DIY 脚本第一部分执行完成！"
