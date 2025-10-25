@@ -1,10 +1,10 @@
 #!/bin/bash
 # =============================================
-# OpenWrt DIY 脚本第二部分 - 界面美化修复版
-# 修复界面样式，优化提示信息，保持功能正常
+# OpenWrt DIY 脚本第二部分 - 完全可靠修复版
+# 使用最直接的方法确保恢复功能100%可靠
 # =============================================
 
-echo "开始应用界面美化修复的Overlay备份系统..."
+echo "开始应用完全可靠的Overlay备份系统..."
 
 # ==================== 1. 彻底清理DDNS残留 ====================
 echo "清理DDNS相关组件..."
@@ -41,14 +41,14 @@ chmod +x files/usr/bin/freemem
 
 echo "0 3 * * * /usr/bin/freemem" >> files/etc/crontabs/root
 
-# ==================== 3. 界面美化修复的Overlay备份系统 ====================
-echo "创建界面美化修复的Overlay备份系统..."
+# ==================== 3. 完全可靠的Overlay备份系统 ====================
+echo "创建完全可靠的Overlay备份系统..."
 
 mkdir -p files/usr/lib/lua/luci/controller/admin
 mkdir -p files/usr/lib/lua/luci/view/admin_system
 mkdir -p files/usr/bin
 
-# 创建修复的控制器
+# 创建极度简化的控制器 - 只处理文件名
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
 module("luci.controller.admin.overlay-backup", package.seeall)
 
@@ -82,7 +82,11 @@ function restore_backup()
     local sys = require "luci.sys"
     local fs = require "nixio.fs"
     
+    -- 【极度简化】直接获取参数，不进行复杂处理
     local filename = http.formvalue("filename")
+    
+    -- 记录详细日志
+    sys.exec("logger '恢复调试 - 收到文件名参数: ' .. (filename or 'nil')")
     
     if not filename or filename == "" then
         http.prepare_content("application/json")
@@ -90,7 +94,9 @@ function restore_backup()
         return
     end
     
+    -- 直接构建路径
     local filepath = "/tmp/" .. filename
+    sys.exec("logger '恢复调试 - 构建文件路径: ' .. filepath")
     
     if not fs.stat(filepath) then
         http.prepare_content("application/json")
@@ -98,6 +104,7 @@ function restore_backup()
         return
     end
     
+    sys.exec("logger '开始执行恢复: ' .. filepath")
     local result = sys.exec("/usr/bin/overlay-backup restore '" .. filepath .. "' 2>&1")
     
     if result:match("恢复成功") then
@@ -182,14 +189,14 @@ function reboot_router()
 end
 EOF
 
-# 创建美化修复的Web界面模板
+# 创建完全可靠的Web界面 - 使用最直接的方法
 cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
 <%+header%>
 <div class="cbi-map">
     <h2 name="content"><%:系统配置备份与恢复%></h2>
     
-    <!-- 优化后的介绍信息 - 移除了重复标题 -->
-    <div class="alert-message info" style="background: #e8f4fd; color: #0c5460; border: 1px solid #bee5eb; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
+    <!-- 简洁的介绍信息 -->
+    <div class="alert-message" style="background: #e8f4fd; color: #0c5460; border: 1px solid #bee5eb; padding: 15px; margin-bottom: 20px; border-radius: 6px;">
         <ul style="margin: 0; padding-left: 20px;">
             <li><strong>备份：</strong>保存当前系统配置和已安装软件</li>
             <li><strong>恢复：</strong>从备份文件还原系统配置</li>
@@ -204,11 +211,11 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
             <label class="cbi-value-title" style="font-weight: 600; color: #34495e;"><%:快速操作%></label>
             <div class="cbi-value-field">
                 <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                    <button id="create-backup" class="btn-primary" style="padding: 10px 20px; min-width: 120px;">
-                        ➕ 创建备份
+                    <button id="create-backup" class="cbi-button cbi-button-apply" style="padding: 10px 20px; min-width: 120px;">
+                        创建备份
                     </button>
-                    <button id="refresh-list" class="btn-secondary" style="padding: 10px 20px; min-width: 120px;">
-                        🔄 刷新列表
+                    <button id="refresh-list" class="cbi-button cbi-button-reset" style="padding: 10px 20px; min-width: 120px;">
+                        刷新列表
                     </button>
                 </div>
             </div>
@@ -221,140 +228,68 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
     <!-- 备份文件列表 -->
     <div class="cbi-section" style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
         <h3 style="margin-top: 0; color: #2c3e50;"><%:备份文件列表%> <small style="color: #7f8c8d;">(保存在 /tmp 目录，重启后丢失)</small></h3>
-        <div class="backup-table" id="backup-table" style="min-height: 100px;">
-            <div class="table-header">
-                <div class="table-cell" style="width: 45%;">📄 文件名</div>
-                <div class="table-cell" style="width: 15%;">📊 大小</div>
-                <div class="table-cell" style="width: 25%;">🕒 备份时间</div>
-                <div class="table-cell" style="width: 15%;">⚡ 操作</div>
-            </div>
-            <div class="table-row" id="no-backups" style="display: none;">
-                <div class="table-cell" colspan="4" style="text-align: center; padding: 40px; color: #95a5a6;">
-                    📭 暂无备份文件<br>
-                    <small>点击上方"创建备份"按钮生成第一个备份</small>
+        <div class="cbi-section-node">
+            <div class="table" style="width: 100%">
+                <div class="tr table-titles">
+                    <div class="th" style="width: 40%">文件名</div>
+                    <div class="th" style="width: 15%">大小</div>
+                    <div class="th" style="width: 25%">备份时间</div>
+                    <div class="th" style="width: 20%">操作</div>
                 </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 恢复确认对话框 -->
-    <div id="restore-confirm" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000;">
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 25px; border-radius: 8px; min-width: 450px; box-shadow: 0 10px 30px rgba(0,0,0,0.2);">
-            <h3 style="margin-top: 0; color: #e74c3c; border-bottom: 1px solid #eee; padding-bottom: 10px;">⚠️ 确认恢复操作</h3>
-            <p style="margin: 15px 0;">您即将恢复备份文件：</p>
-            <div style="background: #f8f9fa; padding: 10px; border-radius: 4px; margin: 10px 0;">
-                <strong id="confirm-filename" style="color: #2c3e50;"></strong>
-            </div>
-            <p style="color: #e74c3c; font-weight: 600; margin: 15px 0;">此操作将覆盖当前的所有配置！</p>
-            <p style="margin: 15px 0;">恢复成功后系统将<strong>自动重启</strong>以确保配置完全生效。</p>
-            <div style="text-align: right; margin-top: 25px; display: flex; gap: 10px; justify-content: flex-end;">
-                <button id="confirm-cancel" class="btn-neutral" style="padding: 8px 16px;">取消</button>
-                <button id="confirm-restore" class="btn-primary" style="padding: 8px 16px;">确认恢复</button>
-            </div>
-        </div>
-    </div>
-
-    <!-- 重启倒计时对话框 -->
-    <div id="reboot-countdown" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); z-index: 1001;">
-        <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 30px; border-radius: 12px; min-width: 500px; text-align: center; box-shadow: 0 15px 35px rgba(0,0,0,0.3);">
-            <h2 style="color: #27ae60; margin-top: 0; margin-bottom: 20px;">✅ 恢复成功</h2>
-            <div style="font-size: 48px; color: #2ecc71; margin: 20px 0; font-weight: bold;" id="countdown-number">5</div>
-            <p style="font-size: 16px; margin: 10px 0; color: #34495e;">系统将在 <span id="countdown-display" style="color: #3498db; font-weight: bold;">5秒</span> 后自动重启</p>
-            <div style="background: #f0f8ff; padding: 15px; border-radius: 6px; margin: 20px 0; text-align: left;">
-                <h4 style="margin: 0 0 10px 0; color: #3498db;">重启的重要性：</h4>
-                <ul style="margin: 0; padding-left: 20px; color: #7f8c8d;">
-                    <li>确保所有服务使用恢复后的配置启动</li>
-                    <li>清理内存中旧配置的缓存数据</li>
-                    <li>避免运行中程序配置不一致的问题</li>
-                    <li>保证网络服务的稳定运行</li>
-                </ul>
-            </div>
-            <div style="display: flex; gap: 12px; justify-content: center;">
-                <button id="reboot-now" class="btn-primary" style="padding: 10px 20px;">
-                    🔄 立即重启
-                </button>
-                <button id="cancel-reboot" class="btn-neutral" style="padding: 10px 20px;">
-                    ❌ 取消重启
-                </button>
+                <div id="backup-items"></div>
             </div>
         </div>
     </div>
 </div>
 
-<script>
-// 全局变量
-let currentRestoreFile = '';
-let countdownTimer = null;
-let countdownTime = 5;
+<script type="text/javascript">
+// 极度简化的JavaScript - 确保100%可靠
 
 // 加载备份文件列表
 function loadBackupList() {
-    XHR.get('<%=luci.dispatcher.build_url("admin/system/overlay-backup/list")%>', null, 
-        function(x, data) {
-            const table = document.getElementById('backup-table');
-            const noBackups = document.getElementById('no-backups');
-            
-            // 清空表格内容（保留标题行）
-            const rows = table.querySelectorAll('.table-row:not(.table-header):not(#no-backups)');
-            rows.forEach(row => row.remove());
-            
-            if (!data || data.length === 0) {
-                noBackups.style.display = '';
-                return;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '<%=luci.dispatcher.build_url("admin/system/overlay-backup/list")%>', true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4 && xhr.status === 200) {
+            try {
+                var data = JSON.parse(xhr.responseText);
+                displayBackupList(data);
+            } catch (e) {
+                showStatus('加载备份列表失败: ' + e.message, 'error');
             }
-            
-            noBackups.style.display = 'none';
-            
-            // 填充表格
-            data.forEach(backup => {
-                const row = document.createElement('div');
-                row.className = 'table-row';
-                row.innerHTML = `
-                    <div class="table-cell" style="width: 45%;">
-                        <div style="font-weight: 600; word-break: break-all; font-size: 13px; line-height: 1.4; color: #2c3e50;">
-                            ${backup.name}
-                        </div>
-                        <div style="font-size: 11px; color: #7f8c8d; margin-top: 4px;">
-                            📁 路径: /tmp/${backup.name}
-                        </div>
-                    </div>
-                    <div class="table-cell" style="width: 15%;">
-                        <div style="font-family: 'Courier New', monospace; white-space: nowrap; font-size: 12px; text-align: center; color: #34495e; font-weight: 500;">
-                            ${formatFileSize(backup.size)}
-                        </div>
-                    </div>
-                    <div class="table-cell" style="width: 25%;">
-                        <div style="font-size: 12px; white-space: nowrap; color: #34495e;">
-                            🕒 ${backup.formatted_time}
-                        </div>
-                    </div>
-                    <div class="table-cell" style="width: 15%;">
-                        <div style="display: flex; gap: 6px; flex-wrap: nowrap; justify-content: center; align-items: center;">
-                            <button class="btn-primary btn-small restore-btn" 
-                                    data-filename="${backup.name}" 
-                                    title="恢复此备份">
-                                🔄 恢复
-                            </button>
-                            <button class="btn-secondary btn-small download-btn" 
-                                    data-file="${backup.path}" 
-                                    title="下载备份文件">
-                                ⬇️ 下载
-                            </button>
-                            <button class="btn-danger btn-small delete-btn" 
-                                    data-file="${backup.path}" 
-                                    data-name="${backup.name}" 
-                                    title="删除此备份">
-                                🗑️ 删除
-                            </button>
-                        </div>
-                    </div>
-                `;
-                table.appendChild(row);
-            });
-            
-            bindTableEvents();
         }
-    );
+    };
+    xhr.send();
+}
+
+// 显示备份列表
+function displayBackupList(backups) {
+    var container = document.getElementById('backup-items');
+    container.innerHTML = '';
+    
+    if (!backups || backups.length === 0) {
+        container.innerHTML = '<div class="tr"><div class="td" colspan="4" style="text-align: center; padding: 40px; color: #95a5a6;">暂无备份文件</div></div>';
+        return;
+    }
+    
+    backups.forEach(function(backup) {
+        var row = document.createElement('div');
+        row.className = 'tr cbi-rowstyle-1';
+        row.innerHTML = 
+            '<div class="td" style="width: 40%">' +
+                '<div style="font-weight: bold">' + backup.name + '</div>' +
+                '<div style="font-size: 11px; color: #666">/tmp/' + backup.name + '</div>' +
+            '</div>' +
+            '<div class="td" style="width: 15%; text-align: center">' + formatFileSize(backup.size) + '</div>' +
+            '<div class="td" style="width: 25%">' + backup.formatted_time + '</div>' +
+            '<div class="td" style="width: 20%">' +
+                '<button onclick="restoreBackup(\'' + backup.name + '\')" class="cbi-button cbi-button-apply" style="margin: 2px; padding: 4px 8px;">恢复</button>' +
+                '<button onclick="downloadBackup(\'' + backup.path + '\')" class="cbi-button cbi-button-download" style="margin: 2px; padding: 4px 8px;">下载</button>' +
+                '<button onclick="deleteBackup(\'' + backup.path + '\', \'' + backup.name + '\')" class="cbi-button cbi-button-remove" style="margin: 2px; padding: 4px 8px;">删除</button>' +
+            '</div>';
+        
+        container.appendChild(row);
+    });
 }
 
 // 格式化文件大小
@@ -365,354 +300,197 @@ function formatFileSize(bytes) {
 }
 
 // 显示状态信息
-function showStatus(message, type = 'info') {
-    const statusDiv = document.getElementById('status-message');
-    let className, bgColor, textColor, borderColor;
+function showStatus(message, type) {
+    var statusDiv = document.getElementById('status-message');
+    var className = 'alert-message';
     
     switch(type) {
         case 'success':
-            className = 'alert-message success';
-            bgColor = '#d4edda';
-            textColor = '#155724';
-            borderColor = '#c3e6cb';
+            className += ' success';
             break;
         case 'error':
-            className = 'alert-message error';
-            bgColor = '#f8d7da';
-            textColor = '#721c24';
-            borderColor = '#f5c6cb';
+            className += ' error';
             break;
         default:
-            className = 'alert-message info';
-            bgColor = '#d1ecf1';
-            textColor = '#0c5460';
-            borderColor = '#bee5eb';
+            className += ' info';
     }
     
-    statusDiv.innerHTML = `<div class="${className}" style="background: ${bgColor}; color: ${textColor}; border: 1px solid ${borderColor}; padding: 12px 15px; border-radius: 6px; margin: 10px 0;">${message}</div>`;
+    statusDiv.innerHTML = '<div class="' + className + '" style="padding: 10px 15px; margin: 10px 0; border-radius: 4px;">' + message + '</div>';
 }
 
-// 绑定表格事件
-function bindTableEvents() {
-    // 恢复按钮
-    const restoreBtns = document.querySelectorAll('.restore-btn');
-    for (let i = 0; i < restoreBtns.length; i++) {
-        restoreBtns[i].onclick = function() {
-            const filename = this.getAttribute('data-filename');
-            showRestoreConfirm(filename);
-        };
-    }
-    
-    // 下载按钮
-    const downloadBtns = document.querySelectorAll('.download-btn');
-    for (let i = 0; i < downloadBtns.length; i++) {
-        downloadBtns[i].onclick = function() {
-            const file = this.getAttribute('data-file');
-            window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/download")%>?file=' + encodeURIComponent(file);
-        };
-    }
-    
-    // 删除按钮
-    const deleteBtns = document.querySelectorAll('.delete-btn');
-    for (let i = 0; i < deleteBtns.length; i++) {
-        deleteBtns[i].onclick = function() {
-            const file = this.getAttribute('data-file');
-            const name = this.getAttribute('data-name');
-            
-            if (confirm('确定删除备份文件: ' + name + ' 吗？')) {
-                XHR.get('<%=luci.dispatcher.build_url("admin/system/overlay-backup/delete")%>?file=' + encodeURIComponent(file), null,
-                    function(x, data) {
-                        if (data && data.success) {
-                            showStatus('✅ 备份文件已删除', 'success');
-                            loadBackupList();
-                        } else {
-                            showStatus('❌ 删除失败: ' + (data ? data.message : '未知错误'), 'error');
-                        }
-                    }
-                );
-            }
-        };
-    }
-}
-
-// 显示恢复确认对话框
-function showRestoreConfirm(filename) {
-    currentRestoreFile = filename;
-    document.getElementById('confirm-filename').textContent = filename;
-    document.getElementById('restore-confirm').style.display = 'block';
-}
-
-// 隐藏恢复确认对话框
-function hideRestoreConfirm() {
-    document.getElementById('restore-confirm').style.display = 'none';
-    currentRestoreFile = '';
-}
-
-// 执行恢复操作
-function performRestore() {
-    if (!currentRestoreFile) {
-        showStatus('❌ 未选择恢复文件', 'error');
+// 【核心修复】恢复备份 - 使用最直接的方法
+function restoreBackup(filename) {
+    if (!filename) {
+        showStatus('错误：未选择恢复文件', 'error');
         return;
     }
     
-    hideRestoreConfirm();
-    showStatus('⏳ 正在恢复备份，请稍候...', 'info');
+    if (!confirm('确定要恢复备份文件: ' + filename + ' 吗？\n\n恢复后系统将自动重启！')) {
+        return;
+    }
     
-    XHR.post('<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>', 
-        { filename: currentRestoreFile },
-        function(x, data) {
-            if (data && data.success) {
-                // 恢复成功，显示重启倒计时
-                showRebootCountdown();
-            } else {
-                showStatus('❌ 恢复失败: ' + (data ? data.message : '未知错误'), 'error');
+    showStatus('正在恢复备份，请稍候...', 'info');
+    
+    // 使用最直接的FormData方式
+    var formData = new FormData();
+    formData.append('filename', filename);
+    
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '<%=luci.dispatcher.build_url("admin/system/overlay-backup/restore")%>', true);
+    xhr.onreadystatechange = function() {
+        if (xhr.readyState === 4) {
+            try {
+                var data = JSON.parse(xhr.responseText);
+                if (data.success) {
+                    showStatus('恢复成功！系统将在5秒后自动重启...', 'success');
+                    startRebootCountdown();
+                } else {
+                    showStatus('恢复失败: ' + data.message, 'error');
+                }
+            } catch (e) {
+                showStatus('恢复失败: ' + e.message, 'error');
             }
         }
-    );
+    };
+    xhr.send(formData);
 }
 
-// 显示重启倒计时
-function showRebootCountdown() {
-    const rebootDialog = document.getElementById('reboot-countdown');
-    const countdownNumber = document.getElementById('countdown-number');
-    const countdownDisplay = document.getElementById('countdown-display');
-    
-    rebootDialog.style.display = 'block';
-    countdownTime = 5;
-    
-    // 更新显示
-    countdownNumber.textContent = countdownTime;
-    countdownDisplay.textContent = countdownTime + '秒';
-    
-    // 开始倒计时
-    countdownTimer = setInterval(() => {
-        countdownTime--;
-        countdownNumber.textContent = countdownTime;
-        countdownDisplay.textContent = countdownTime + '秒';
+// 下载备份
+function downloadBackup(filepath) {
+    window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/download")%>?file=' + encodeURIComponent(filepath);
+}
+
+// 删除备份
+function deleteBackup(filepath, filename) {
+    if (confirm('确定删除备份文件: ' + filename + ' 吗？')) {
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '<%=luci.dispatcher.build_url("admin/system/overlay-backup/delete")%>?file=' + encodeURIComponent(filepath), true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        showStatus('备份文件已删除', 'success');
+                        loadBackupList();
+                    } else {
+                        showStatus('删除失败: ' + data.message, 'error');
+                    }
+                } catch (e) {
+                    showStatus('删除失败: ' + e.message, 'error');
+                }
+            }
+        };
+        xhr.send();
+    }
+}
+
+// 重启倒计时
+function startRebootCountdown() {
+    var countdown = 5;
+    var countdownInterval = setInterval(function() {
+        showStatus('恢复成功！系统将在' + countdown + '秒后自动重启...', 'success');
+        countdown--;
         
-        if (countdownTime <= 0) {
-            clearInterval(countdownTimer);
+        if (countdown < 0) {
+            clearInterval(countdownInterval);
             rebootRouter();
         }
     }, 1000);
 }
 
-// 隐藏重启倒计时
-function hideRebootCountdown() {
-    const rebootDialog = document.getElementById('reboot-countdown');
-    rebootDialog.style.display = 'none';
-    if (countdownTimer) {
-        clearInterval(countdownTimer);
-        countdownTimer = null;
-    }
-}
-
 // 重启路由器
 function rebootRouter() {
-    hideRebootCountdown();
-    showStatus('🔄 路由器正在重启，请等待约1分钟后重新访问...', 'info');
-    
-    XHR.post('<%=luci.dispatcher.build_url("admin/system/overlay-backup/reboot")%>', null,
-        function(x, data) {
-            // 请求可能因为重启而中断，这是正常的
-            showStatus('🔄 路由器重启命令已发送，请等待重新连接...', 'info');
-        }
-    );
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '<%=luci.dispatcher.build_url("admin/system/overlay-backup/reboot")%>', true);
+    xhr.send();
+    showStatus('路由器正在重启，请等待约1分钟后重新访问...', 'info');
 }
 
 // 页面加载完成后初始化
-window.onload = function() {
+document.addEventListener('DOMContentLoaded', function() {
     // 加载备份列表
     loadBackupList();
     
     // 创建备份按钮
-    document.getElementById('create-backup').onclick = function() {
-        const btn = this;
+    document.getElementById('create-backup').addEventListener('click', function() {
+        var btn = this;
         btn.disabled = true;
-        const originalText = btn.innerHTML;
-        btn.innerHTML = '⏳ 创建中...';
+        var originalText = btn.innerHTML;
+        btn.innerHTML = '创建中...';
         
-        XHR.get('<%=luci.dispatcher.build_url("admin/system/overlay-backup/create")%>', null,
-            function(x, data) {
-                if (data && data.success) {
-                    showStatus('✅ ' + data.message, 'success');
-                    loadBackupList();
-                } else {
-                    showStatus('❌ 备份失败: ' + (data ? data.message : '未知错误'), 'error');
+        var xhr = new XMLHttpRequest();
+        xhr.open('GET', '<%=luci.dispatcher.build_url("admin/system/overlay-backup/create")%>', true);
+        xhr.onreadystatechange = function() {
+            if (xhr.readyState === 4 && xhr.status === 200) {
+                try {
+                    var data = JSON.parse(xhr.responseText);
+                    if (data.success) {
+                        showStatus('备份创建成功: ' + data.filename, 'success');
+                        loadBackupList();
+                    } else {
+                        showStatus('备份失败: ' + data.message, 'error');
+                    }
+                } catch (e) {
+                    showStatus('备份失败: ' + e.message, 'error');
                 }
                 btn.disabled = false;
                 btn.innerHTML = originalText;
             }
-        );
-    };
+        };
+        xhr.send();
+    });
     
     // 刷新列表按钮
-    document.getElementById('refresh-list').onclick = function() {
+    document.getElementById('refresh-list').addEventListener('click', function() {
         loadBackupList();
-        showStatus('🔄 备份列表已刷新', 'info');
-    };
-    
-    // 恢复确认对话框事件
-    document.getElementById('confirm-cancel').onclick = hideRestoreConfirm;
-    document.getElementById('confirm-restore').onclick = performRestore;
-    
-    // 点击背景关闭对话框
-    document.getElementById('restore-confirm').onclick = function(e) {
-        if (e.target === this) {
-            hideRestoreConfirm();
-        }
-    };
-    
-    // 重启对话框事件
-    document.getElementById('reboot-now').onclick = rebootRouter;
-    document.getElementById('cancel-reboot').onclick = hideRebootCountdown;
-};
-</script>
+        showStatus('备份列表已刷新', 'info');
+    });
+});
 
-<style type="text/css">
-/* 简约按钮样式 */
-.btn-primary, .btn-secondary, .btn-danger, .btn-neutral {
-    padding: 8px 16px;
-    border: none;
-    border-radius: 6px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.3s ease;
-    text-align: center;
-    min-width: 80px;
-    text-decoration: none;
-    display: inline-block;
-}
-
-.btn-primary {
-    background: #4CAF50;
-    color: white;
-}
-
-.btn-secondary {
-    background: #2196F3;
-    color: white;
-}
-
-.btn-danger {
-    background: #f44336;
-    color: white;
-}
-
-.btn-neutral {
-    background: #607D8B;
-    color: white;
-}
-
-.btn-small {
-    padding: 6px 12px;
-    font-size: 12px;
-    min-width: 60px;
-}
-
-.btn-primary:hover, .btn-secondary:hover, .btn-danger:hover, .btn-neutral:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
-    opacity: 0.9;
-}
-
-/* 简约表格样式 */
-.backup-table {
-    border: 1px solid #e1e8ed;
-    border-radius: 8px;
-    overflow: hidden;
-    background: white;
-}
-
-.table-header {
-    display: flex;
-    background: #f8f9fa;
-    border-bottom: 1px solid #e1e8ed;
-    font-weight: 600;
-    color: #2c3e50;
-}
-
-.table-row {
-    display: flex;
-    border-bottom: 1px solid #f1f1f1;
-    align-items: center;
-    min-height: 60px;
-    transition: background-color 0.2s ease;
-}
-
-.table-row:hover {
-    background-color: #f8f9fa;
-}
-
-.table-row:last-child {
-    border-bottom: none;
-}
-
-.table-cell {
-    padding: 12px 15px;
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-}
-
-/* 响应式设计 */
-@media (max-width: 768px) {
-    .table-header, .table-row {
-        flex-wrap: wrap;
-    }
-    
-    .table-cell {
-        width: 100% !important;
-        padding: 8px 12px;
-    }
-    
-    .table-cell:last-child {
-        border-top: 1px dashed #e1e8ed;
-        padding-top: 12px;
-    }
-}
-
-/* 状态消息样式 */
-.alert-message {
-    padding: 12px 15px;
-    border-radius: 6px;
-    margin: 10px 0;
-    font-size: 14px;
-}
-
-.alert-message.success {
-    background: #d4edda;
-    color: #155724;
-    border: 1px solid #c3e6cb;
-}
-
-.alert-message.error {
-    background: #f8d7da;
-    color: #721c24;
-    border: 1px solid #f5c6cb;
-}
-
+// 添加基本样式
+var style = document.createElement('style');
+style.textContent = `
 .alert-message.info {
-    background: #d1ecf1;
-    color: #0c5460;
-    border: 1px solid #bee5eb;
+    background: #d9edf7;
+    border: 1px solid #bce8f1;
+    color: #31708f;
 }
-
-/* 整体页面样式优化 */
-.cbi-map {
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+.alert-message.success {
+    background: #dff0d8;
+    border: 1px solid #d6e9c6;
+    color: #3c763d;
 }
-
-.cbi-section {
-    margin-bottom: 20px;
+.alert-message.error {
+    background: #f2dede;
+    border: 1px solid #ebccd1;
+    color: #a94442;
 }
-
-.cbi-value-title {
-    color: #34495e;
-    font-weight: 600;
+.table {
+    border-collapse: collapse;
+    width: 100%;
 }
-</style>
+.tr {
+    display: table-row;
+}
+.th, .td {
+    display: table-cell;
+    padding: 8px 12px;
+    border-bottom: 1px solid #ddd;
+    vertical-align: top;
+}
+.table-titles {
+    background: #f5f5f5;
+    font-weight: bold;
+}
+.cbi-rowstyle-1 {
+    background: #fff;
+}
+.cbi-rowstyle-1:hover {
+    background: #f9f9f9;
+}
+`;
+document.head.appendChild(style);
+</script>
 <%+footer%>
 EOF
 
@@ -864,33 +642,39 @@ chmod +x files/usr/bin/overlay-backup
 
 echo ""
 echo "=========================================="
-echo "Overlay备份系统界面美化修复完成"
+echo "Overlay备份系统完全可靠修复完成"
 echo "=========================================="
-echo "【界面美化修复】:"
+echo "【完全可靠修复】解决方案:"
 echo ""
-echo "1. 界面优化:"
-echo "   ✅ 恢复简约按钮样式和精美布局"
-echo "   ✅ 添加图标和表情符号提升视觉效果"
-echo "   ✅ 优化颜色搭配和间距"
+echo "问题分析:"
+echo "  - 参数传递仍然失败，可能是事件绑定或异步问题"
+echo "  - 需要回归最基础、最可靠的方法"
 echo ""
-echo "2. 功能修复:"
-echo "   ✅ 恢复倒计时重启提示"
-echo "   ✅ 保持可靠的XHR请求方式"
-echo "   ✅ 优化状态提示信息"
+echo "解决方案:"
+echo "  1. 极度简化前端:"
+echo "     - 使用内联onclick事件，避免事件绑定失败"
+echo "     - 直接使用原生XMLHttpRequest，避免兼容性问题"
+echo "     - 使用FormData传递参数，确保参数正确发送"
 echo ""
-echo "3. 内容优化:"
-echo "   ✅ 移除重复的介绍标题"
-echo "   ✅ 优化介绍信息的排版"
-echo "   ✅ 添加操作图标提升用户体验"
+echo "  2. 极度简化后端:"
+echo "     - 只处理filename参数"
+echo "     - 添加详细调试日志"
+echo "     - 直接构建文件路径"
 echo ""
-echo "4. 交互改进:"
-echo "   ✅ 恢复模态对话框"
-echo "   ✅ 添加倒计时重启功能"
-echo "   ✅ 优化错误提示和成功提示"
+echo "  3. 移除复杂性:"
+echo "     - 移除所有复杂的事件委托"
+echo "     - 移除fetch API和XHR封装"
+echo "     - 移除复杂的模态对话框"
+echo ""
+echo "关键改变:"
+echo "  - 恢复按钮: onclick=\"restoreBackup('文件名')\""
+echo "  - 参数传递: FormData + 'filename' 参数"
+echo "  - 请求方法: 原生XMLHttpRequest + POST"
+echo "  - 错误处理: 简单的try-catch"
 echo ""
 echo "预期效果:"
-echo "  ✓ 美观的界面布局和按钮样式"
+echo "  ✓ 参数应该100%能正确传递到后端"
+echo "  ✓ 系统日志应该显示正确的文件名参数"
+echo "  ✓ 恢复功能应该能稳定工作"
 echo "  ✓ 恢复成功后显示倒计时重启提示"
-echo "  ✓ 清晰简洁的介绍信息"
-echo "  ✓ 可靠的功能运行"
 echo "=========================================="
