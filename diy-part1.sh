@@ -2,7 +2,7 @@
 # =============================================
 # ImmortalWrt DIY 脚本第一部分
 # 功能：更新feeds，设置基础环境，集成自定义包
-# 修复设备检测问题
+# 修复设备检测问题，支持 ASUS RT-AC42U
 # =============================================
 
 echo "开始执行 DIY 脚本第一部分..."
@@ -24,28 +24,24 @@ unzip zlib1g-dev file wget
 echo "更新 ImmortalWrt 源码..."
 git pull origin master
 
-# 修复设备支持检查
+# 修复设备支持检查 - ASUS RT-AC42U
 echo "检查设备支持..."
 if [ -d "target/linux/ipq40xx" ]; then
     echo "✅ 找到 ipq40xx 目标平台"
     
-    # 检查 ASUS RT-ACRH17 设备定义
+    # 检查 ASUS RT-AC42U 设备定义
     if [ -f "target/linux/ipq40xx/image/generic.mk" ]; then
         echo "检查 generic.mk 中的设备定义..."
-        if grep -q "asus,rt-acrh17" target/linux/ipq40xx/image/generic.mk; then
-            echo "✅ ASUS RT-ACRH17 设备定义存在"
+        if grep -q "asus,rt-ac42u" target/linux/ipq40xx/image/generic.mk; then
+            echo "✅ ASUS RT-AC42U 设备定义存在"
         else
-            echo "⚠️  未找到 ASUS RT-ACRH17 设备定义"
-        fi
-    fi
-    
-    # 检查设备树文件
-    if [ -d "target/linux/ipq40xx/files/arch/arm/boot/dts" ]; then
-        echo "检查设备树文件..."
-        if find target/linux/ipq40xx/files/arch/arm/boot/dts -name "*acrh*" | grep -q .; then
-            echo "✅ 找到 ASUS RT-ACRH17 相关设备树文件"
-        else
-            echo "⚠️  未找到 ASUS RT-ACRH17 设备树文件"
+            echo "⚠️  未找到 ASUS RT-AC42U 设备定义，检查其他位置..."
+            # 检查设备树文件
+            if [ -f "target/linux/ipq40xx/files/arch/arm/boot/dts/qcom-ipq4019-rt-ac42u.dts" ]; then
+                echo "✅ 找到 ASUS RT-AC42U 设备树文件: qcom-ipq4019-rt-ac42u.dts"
+            else
+                echo "❌ 未找到 ASUS RT-AC42U 设备树文件"
+            fi
         fi
     fi
 else
@@ -130,5 +126,3 @@ for pkg in "${REQUIRED_PACKAGES[@]}"; do
         echo "⚠️  未找到包: $pkg"
     fi
 done
-
-echo "✅ DIY 脚本第一部分执行完成！"
