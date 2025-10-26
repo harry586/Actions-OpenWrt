@@ -126,3 +126,5 @@ for pkg in "${REQUIRED_PACKAGES[@]}"; do
         echo "⚠️  未找到包: $pkg"
     fi
 done
+
+echo "✅ DIY 脚本第一部分执行完成！"
