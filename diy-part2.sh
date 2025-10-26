@@ -2,29 +2,31 @@
 # =============================================
 # ImmortalWrt DIY 脚本第二部分
 # 功能：Overlay备份系统、内存释放、IPK自动安装
-# 增强版：添加设备配置双重保险
+# 增强版：基于现有配置优化，添加简约风格界面
 # =============================================
 
 echo "开始执行 DIY 脚本第二部分..."
 
 # ==================== 设备配置双重保险 ====================
 echo "应用设备配置双重保险..."
-# 确保使用正确的设备配置
-if ! grep -q "CONFIG_TARGET_ath79_generic_DEVICE_asus_rt-acrh17=y" .config; then
+# 确保使用正确的设备配置（基于用户提供的现有配置）
+if ! grep -q "CONFIG_TARGET_ipq40xx_generic_DEVICE_asus_rt-acrh17=y" .config; then
     echo "⚠️  设备配置缺失，自动添加 ASUS RT-ACRH17 配置..."
     cat >> .config << 'EOF'
 # 自动添加的设备配置 - DIY 脚本保险
-CONFIG_TARGET_ath79=y
-CONFIG_TARGET_ath79_generic=y
-CONFIG_TARGET_ath79_generic_DEVICE_asus_rt-acrh17=y
+CONFIG_TARGET_ipq40xx=y
+CONFIG_TARGET_ipq40xx_generic=y
+CONFIG_TARGET_ipq40xx_generic_DEVICE_asus_rt-acrh17=y
 EOF
     echo "✅ 设备配置已添加"
 else
     echo "✅ 设备配置已确认正确"
 fi
 
-# ==================== 1. 彻底清理DDNS残留 ====================
-echo "清理DDNS相关组件..."
+# ==================== 1. 彻底清理排除的组件 ====================
+echo "清理排除的组件残留..."
+
+# DDNS 禁用配置
 mkdir -p files/etc/config
 cat > files/etc/config/ddns << 'EOF'
 # DDNS 配置已禁用 - 根据用户需求排除
@@ -42,6 +44,17 @@ stop() { return 0; }
 EOF
 chmod +x files/etc/init.d/ddns
 
+# 带宽监控禁用
+mkdir -p files/etc/config
+cat > files/etc/config/nlbwmon << 'EOF'
+# 带宽监控已禁用 - 根据用户需求排除
+EOF
+
+# 网络唤醒禁用  
+cat > files/etc/config/wol << 'EOF'
+# 网络唤醒已禁用 - 根据用户需求排除
+EOF
+
 # ==================== 2. 内存释放功能 ====================
 echo "配置定时内存释放..."
 mkdir -p files/etc/crontabs
@@ -52,10 +65,11 @@ cat > files/usr/bin/freemem << 'EOF'
 #!/bin/sh
 # 内存释放脚本 - 清理系统缓存
 # 作者：ImmortalWrt DIY
+# 功能：定期清理系统缓存，释放内存
 
 logger "开始执行内存缓存清理..."
 
-# 同步文件系统
+# 同步文件系统确保数据安全
 sync
 
 # 清理页面缓存、目录项和inodes
@@ -81,7 +95,8 @@ mkdir -p files/etc/uci-defaults
 cat > files/etc/uci-defaults/99-custom-ipk-install << 'EOF'
 #!/bin/sh
 # IPK包自动安装脚本
-# 在首次启动时自动安装files/packages目录下的IPK包
+# 功能：在首次启动时自动安装files/packages目录下的IPK包
+# 注意：此脚本只运行一次，安装完成后自动删除
 
 INSTALL_DIR="/tmp/custom-ipk"
 LOG_FILE="/tmp/ipk-install.log"
@@ -91,17 +106,20 @@ echo "开始检查自定义IPK包安装..." > $LOG_FILE
 if [ -d "$INSTALL_DIR" ]; then
     echo "找到自定义IPK目录: $INSTALL_DIR" >> $LOG_FILE
     
+    # 更新opkg列表
+    opkg update >> $LOG_FILE 2>&1
+    
     # 安装所有IPK包
     for ipk in $INSTALL_DIR/*.ipk; do
         if [ -f "$ipk" ]; then
             echo "正在安装: $(basename $ipk)" >> $LOG_FILE
             opkg install "$ipk" >> $LOG_FILE 2>&1
             if [ $? -eq 0 ]; then
-                echo "安装成功: $(basename $ipk)" >> $LOG_FILE
+                echo "✅ 安装成功: $(basename $ipk)" >> $LOG_FILE
                 # 安装成功后删除IPK文件
                 rm -f "$ipk"
             else
-                echo "安装失败: $(basename $ipk)" >> $LOG_FILE
+                echo "❌ 安装失败: $(basename $ipk)" >> $LOG_FILE
             fi
         fi
     done
@@ -133,9 +151,12 @@ mkdir -p files/usr/bin
 
 # 创建简约控制器
 cat > files/usr/lib/lua/luci/controller/admin/overlay-backup.lua << 'EOF'
+-- Overlay备份系统控制器
+-- 简约风格设计，提供备份和恢复功能
 module("luci.controller.admin.overlay-backup", package.seeall)
 
 function index()
+    -- 在系统菜单下添加Overlay备份入口
     entry({"admin", "system", "overlay-backup"}, template("admin_system/overlay_backup"), _("Overlay Backup"), 80)
     entry({"admin", "system", "overlay-backup", "create"}, call("create_backup")).leaf = true
     entry({"admin", "system", "overlay-backup", "restore"}, call("restore_backup")).leaf = true
@@ -148,6 +169,7 @@ function create_backup()
     local http = require "luci.http"
     local sys = require "luci.sys"
     
+    -- 执行备份命令
     local result = sys.exec("/usr/bin/overlay-backup backup 2>&1")
     
     if result:match("备份成功") then
@@ -180,6 +202,7 @@ function restore_backup()
         return
     end
     
+    -- 执行恢复命令
     local result = sys.exec("/usr/bin/overlay-backup restore '" .. filepath .. "' 2>&1")
     
     if result:match("恢复成功") then
@@ -232,6 +255,7 @@ function list_backups()
     local fs = require "nixio.fs"
     local backups = {}
     
+    -- 扫描/tmp目录下的备份文件
     if fs.stat("/tmp") then
         for file in fs.dir("/tmp") do
             if file:match("backup%-.*%.tar%.gz") then
@@ -250,6 +274,7 @@ function list_backups()
         end
     end
     
+    -- 按时间排序，最新的在前
     table.sort(backups, function(a, b) return a.mtime > b.mtime end)
     
     http.prepare_content("application/json")
@@ -281,10 +306,10 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         </div>
     </div>
 
-    <!-- 状态显示 -->
+    <!-- 状态显示区域 -->
     <div id="status-message" style="margin: 15px 0;"></div>
 
-    <!-- 备份文件列表 - 简约表格 -->
+    <!-- 备份文件列表 - 简约表格设计 -->
     <div class="cbi-section">
         <h3 style="margin-top: 0;"><%:备份文件列表%></h3>
         <div class="table" style="width: 100%; border-collapse: collapse;">
@@ -305,15 +330,18 @@ cat > files/usr/lib/lua/luci/view/admin_system/overlay_backup.htm << 'EOF'
         </div>
     </div>
 
-    <!-- 重启提示 -->
+    <!-- 重启提示框 -->
     <div id="reboot-notice" style="display: none; position: fixed; top: 20px; left: 50%; transform: translateX(-50%); background: #28a745; color: white; padding: 12px 20px; border-radius: 4px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); z-index: 1000;">
         <strong>恢复成功！</strong> 系统将在 <span id="countdown">5</span> 秒后重启...
     </div>
 </div>
 
 <script type="text/javascript">
-// 简约JavaScript功能
+// 简约JavaScript功能实现
 
+/**
+ * 加载备份文件列表
+ */
 function loadBackupList() {
     var xhr = new XMLHttpRequest();
     xhr.open('GET', '<%=luci.dispatcher.build_url("admin/system/overlay-backup/list")%>', true);
@@ -330,6 +358,9 @@ function loadBackupList() {
     xhr.send();
 }
 
+/**
+ * 显示备份文件列表
+ */
 function displayBackupList(backups) {
     var container = document.getElementById('backup-list');
     var noBackups = document.getElementById('no-backups');
@@ -347,6 +378,7 @@ function displayBackupList(backups) {
     
     noBackups.style.display = 'none';
     
+    // 添加备份文件行
     backups.forEach(function(backup) {
         var row = document.createElement('div');
         row.className = 'table-row backup-item';
@@ -367,18 +399,27 @@ function displayBackupList(backups) {
     });
 }
 
+/**
+ * 格式化文件大小
+ */
 function formatSize(bytes) {
     if (bytes < 1024) return bytes + ' B';
     if (bytes < 1048576) return (bytes / 1024).toFixed(1) + ' KB';
     return (bytes / 1048576).toFixed(1) + ' MB';
 }
 
+/**
+ * 显示状态信息
+ */
 function showStatus(message, type) {
     var statusDiv = document.getElementById('status-message');
     var className = type === 'success' ? 'success' : type === 'error' ? 'error' : 'info';
     statusDiv.innerHTML = '<div class="alert-message ' + className + '">' + message + '</div>';
 }
 
+/**
+ * 恢复备份
+ */
 function restoreBackup(filename) {
     if (!confirm('确定恢复备份：' + filename + '？\n系统将自动重启！')) return;
     
@@ -412,10 +453,16 @@ function restoreBackup(filename) {
     xhr.send(formData);
 }
 
+/**
+ * 下载备份文件
+ */
 function downloadBackup(filepath) {
     window.location.href = '<%=luci.dispatcher.build_url("admin/system/overlay-backup/download")%>?file=' + encodeURIComponent(filepath);
 }
 
+/**
+ * 删除备份文件
+ */
 function deleteBackup(filepath) {
     if (confirm('确定删除备份文件？')) {
         var xhr = new XMLHttpRequest();
@@ -430,6 +477,9 @@ function deleteBackup(filepath) {
     }
 }
 
+/**
+ * 显示重启倒计时
+ */
 function showRebootCountdown() {
     var notice = document.getElementById('reboot-notice');
     var countdown = document.getElementById('countdown');
@@ -451,6 +501,7 @@ function showRebootCountdown() {
 document.addEventListener('DOMContentLoaded', function() {
     loadBackupList();
     
+    // 创建备份按钮事件
     document.getElementById('create-backup').addEventListener('click', function() {
         var btn = this;
         btn.disabled = true;
@@ -479,6 +530,7 @@ document.addEventListener('DOMContentLoaded', function() {
         xhr.send();
     });
     
+    // 刷新列表按钮事件
     document.getElementById('refresh-list').addEventListener('click', function() {
         loadBackupList();
         showStatus('列表已刷新', 'info');
@@ -488,15 +540,22 @@ document.addEventListener('DOMContentLoaded', function() {
 // 简约样式增强
 var style = document.createElement('style');
 style.textContent = `
-.cbi-button { padding: 8px 16px; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+.cbi-button { 
+    padding: 8px 16px; 
+    border: none; 
+    border-radius: 4px; 
+    cursor: pointer; 
+    font-size: 14px; 
+    transition: opacity 0.2s;
+}
 .cbi-button-apply { background: #28a745; color: white; }
 .cbi-button-reset { background: #6c757d; color: white; }
 .cbi-button-download { background: #17a2b8; color: white; }
 .cbi-button-remove { background: #dc3545; color: white; }
 .cbi-button:hover { opacity: 0.8; }
-.alert-message.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
-.alert-message.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
-.alert-message.info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+.alert-message.success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; padding: 12px; border-radius: 4px; }
+.alert-message.error { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; padding: 12px; border-radius: 4px; }
+.alert-message.info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; padding: 12px; border-radius: 4px; }
 .table-cell { display: table-cell; vertical-align: middle; }
 .table-row { display: table-row; }
 .table { display: table; }
@@ -510,6 +569,8 @@ EOF
 cat > files/usr/bin/overlay-backup << 'EOF'
 #!/bin/sh
 # Overlay备份工具 - 简约版本
+# 功能：提供系统配置的备份和恢复功能
+# 支持：系统兼容格式备份、简约操作界面
 
 ACTION="$1"
 FILE="$2"
@@ -521,7 +582,7 @@ create_backup() {
     local backup_file="backup-${timestamp}.tar.gz"
     local backup_path="/tmp/${backup_file}"
     
-    # 使用sysupgrade创建备份
+    # 使用sysupgrade创建备份（首选方法）
     if sysupgrade -b "${backup_path}" >/dev/null 2>&1; then
         local size=$(du -h "${backup_path}" | cut -f1)
         echo "备份成功"
@@ -530,7 +591,7 @@ create_backup() {
         echo "位置: /tmp/"
         return 0
     else
-        # 备用方法
+        # 备用方法：手动打包overlay和etc目录
         echo "使用备用备份方法..."
         if tar -czf "${backup_path}" -C / overlay etc 2>/dev/null; then
             local size=$(du -h "${backup_path}" | cut -f1)
@@ -553,6 +614,7 @@ restore_backup() {
         return 1
     }
     
+    # 如果只提供了文件名，添加/tmp路径
     if [ "$(dirname "$backup_file")" = "." ]; then
         backup_file="/tmp/${backup_file}"
     fi
@@ -564,7 +626,7 @@ restore_backup() {
     
     echo "开始恢复：$(basename "${backup_file}")"
     
-    # 验证文件
+    # 验证备份文件完整性
     if ! tar -tzf "${backup_file}" >/dev/null 2>&1; then
         echo "错误：文件损坏"
         return 1
@@ -573,7 +635,7 @@ restore_backup() {
     echo "文件验证通过"
     echo "停止服务..."
     
-    # 停止服务
+    # 停止关键服务
     /etc/init.d/uhttpd stop 2>/dev/null || true
     /etc/init.d/firewall stop 2>/dev/null || true
     sleep 2
@@ -586,17 +648,24 @@ restore_backup() {
         return 0
     else
         echo "恢复失败"
+        # 恢复失败时重新启动服务
         /etc/init.d/uhttpd start 2>/dev/null || true
         /etc/init.d/firewall start 2>/dev/null || true
         return 1
     fi
 }
 
+# 主程序逻辑
 case "$ACTION" in
-    backup) create_backup ;;
-    restore) restore_backup "$FILE" ;;
+    backup) 
+        create_backup 
+        ;;
+    restore) 
+        restore_backup "$FILE" 
+        ;;
     *)
         echo "用法: $0 {backup|restore <file>}"
+        echo "功能：系统配置备份和恢复工具"
         exit 1
         ;;
 esac
@@ -609,14 +678,15 @@ echo "✅ DIY 脚本第二部分执行完成"
 echo "=========================================="
 echo "包含功能："
 echo "✅ 设备配置双重保险（确保生成正确固件）"
-echo "✅ Overlay备份系统（简约风格）"
+echo "✅ Overlay备份系统（简约风格界面）"
 echo "✅ 内存释放脚本和定时任务"
 echo "✅ IPK包自动安装功能"
-echo "✅ DDNS组件彻底禁用"
+echo "✅ 排除组件彻底禁用（DDNS、带宽监控、网络唤醒）"
 echo ""
-echo "按钮样式特点："
-echo "• 简约圆角设计"
-echo "• 清晰的颜色区分"
-echo "• 响应式布局"
-echo "• 专业的视觉反馈"
+echo "简约风格界面特点："
+echo "• 清晰的操作按钮：创建备份、刷新列表"
+echo "• 简洁的文件列表：文件名、大小、时间、操作"
+echo "• 直观的状态反馈：成功、错误、信息提示"
+echo "• 响应式布局：适应不同屏幕尺寸"
+echo "• 专业的视觉设计：统一的颜色和间距"
 echo "=========================================="
