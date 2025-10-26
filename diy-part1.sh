@@ -2,7 +2,7 @@
 # =============================================
 # ImmortalWrt DIY 脚本第一部分
 # 功能：更新feeds，设置基础环境，集成自定义包
-# 增强版：添加设备配置检查和验证
+# 增强版：基于现有配置优化，确保ASUS RT-ACRH17正确编译
 # =============================================
 
 echo "开始执行 DIY 脚本第一部分..."
@@ -26,18 +26,18 @@ git pull origin master
 
 # 检查设备支持 - 确保 ASUS RT-ACRH17 被正确识别
 echo "检查设备支持..."
-if [ -d "target/linux/ath79" ]; then
-    echo "✅ 找到 ath79 目标平台"
-    if [ -d "target/linux/ath79/image" ]; then
+if [ -d "target/linux/ipq40xx" ]; then
+    echo "✅ 找到 ipq40xx 目标平台"
+    if [ -d "target/linux/ipq40xx/image" ]; then
         echo "检查 ASUS RT-ACRH17 支持..."
-        if grep -r "rt-acrh17" target/linux/ath79/image/; then
+        if grep -r "rt-acrh17" target/linux/ipq40xx/image/; then
             echo "✅ ASUS RT-ACRH17 设备支持已确认"
         else
             echo "⚠️  未直接找到 rt-acrh17，但继续编译过程"
         fi
     fi
 else
-    echo "❌ 未找到 ath79 目标平台，请检查源码"
+    echo "❌ 未找到 ipq40xx 目标平台，请检查源码"
 fi
 
 # 更新 feeds
@@ -66,23 +66,56 @@ else
     echo "ℹ️  未找到自定义包目录，跳过"
 fi
 
-# 清理可能存在的DDNS残留
-echo "清理DDNS相关残留..."
+# 清理排除的组件 - 根据要求排除DDNS、带宽监控、网络唤醒
+echo "清理排除的组件..."
+
+# 清理DDNS相关残留
+echo "清理DDNS相关组件..."
 find . -name "*ddns*" -type d | head -10 | while read dir; do
     if [ -d "$dir" ]; then
-        echo "发现DDNS目录: $dir"
+        echo "移除DDNS目录: $dir"
         rm -rf "$dir" 2>/dev/null || true
     fi
 done
 
-# 清理其他排除的组件
-echo "清理排除的组件..."
+# 清理带宽监控
+echo "清理带宽监控组件..."
 find . -name "*nlbwmon*" -type d | head -5 | while read dir; do
     [ -d "$dir" ] && rm -rf "$dir" 2>/dev/null || true
 done
 
+# 清理网络唤醒
+echo "清理网络唤醒组件..."
 find . -name "*wol*" -type d | head -5 | while read dir; do
     [ -d "$dir" ] && rm -rf "$dir" 2>/dev/null || true
+done
+
+# 确保所需组件存在
+echo "检查所需组件..."
+REQUIRED_PACKAGES=(
+    "luci-app-arpbind"
+    "luci-app-cpulimit" 
+    "luci-app-diskman"
+    "luci-app-eqosplus"
+    "luci-app-hd-idle"
+    "luci-app-parentcontrol"
+    "luci-app-samba4"
+    "luci-app-wechatpush"
+    "luci-app-smartdns"
+    "luci-app-turboacc"
+    "luci-app-vlmcsd"
+    "luci-app-vsftpd"
+    "luci-app-ttyd"
+    "luci-app-sqm-autorate"
+)
+
+for pkg in "${REQUIRED_PACKAGES[@]}"; do
+    if ./scripts/feeds list | grep -q "$pkg"; then
+        echo "✅ 找到所需包: $pkg"
+        ./scripts/feeds install "$pkg" 2>/dev/null || true
+    else
+        echo "⚠️  未找到包: $pkg"
+    fi
 done
 
 echo "✅ DIY 脚本第一部分执行完成！"
