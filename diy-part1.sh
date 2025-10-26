@@ -2,7 +2,7 @@
 # =============================================
 # ImmortalWrt DIY 脚本第一部分
 # 功能：更新feeds，设置基础环境，集成自定义包
-# 增强版：基于现有配置优化，确保ASUS RT-ACRH17正确编译
+# 修复设备检测问题
 # =============================================
 
 echo "开始执行 DIY 脚本第一部分..."
@@ -24,20 +24,33 @@ unzip zlib1g-dev file wget
 echo "更新 ImmortalWrt 源码..."
 git pull origin master
 
-# 检查设备支持 - 确保 ASUS RT-ACRH17 被正确识别
+# 修复设备支持检查
 echo "检查设备支持..."
 if [ -d "target/linux/ipq40xx" ]; then
     echo "✅ 找到 ipq40xx 目标平台"
-    if [ -d "target/linux/ipq40xx/image" ]; then
-        echo "检查 ASUS RT-ACRH17 支持..."
-        if grep -r "rt-acrh17" target/linux/ipq40xx/image/; then
-            echo "✅ ASUS RT-ACRH17 设备支持已确认"
+    
+    # 检查 ASUS RT-ACRH17 设备定义
+    if [ -f "target/linux/ipq40xx/image/generic.mk" ]; then
+        echo "检查 generic.mk 中的设备定义..."
+        if grep -q "asus,rt-acrh17" target/linux/ipq40xx/image/generic.mk; then
+            echo "✅ ASUS RT-ACRH17 设备定义存在"
         else
-            echo "⚠️  未直接找到 rt-acrh17，但继续编译过程"
+            echo "⚠️  未找到 ASUS RT-ACRH17 设备定义"
+        fi
+    fi
+    
+    # 检查设备树文件
+    if [ -d "target/linux/ipq40xx/files/arch/arm/boot/dts" ]; then
+        echo "检查设备树文件..."
+        if find target/linux/ipq40xx/files/arch/arm/boot/dts -name "*acrh*" | grep -q .; then
+            echo "✅ 找到 ASUS RT-ACRH17 相关设备树文件"
+        else
+            echo "⚠️  未找到 ASUS RT-ACRH17 设备树文件"
         fi
     fi
 else
     echo "❌ 未找到 ipq40xx 目标平台，请检查源码"
+    exit 1
 fi
 
 # 更新 feeds
